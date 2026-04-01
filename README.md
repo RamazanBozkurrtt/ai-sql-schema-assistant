@@ -1,0 +1,1 @@
+# ai-sql-schema-assistant
