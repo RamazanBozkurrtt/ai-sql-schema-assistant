@@ -1,0 +1,11 @@
+{
+  "rules": [
+    "Henüz kural yok"
+  ],
+  "examples": [
+    {
+      "question": "null",
+      "sql": "null"
+    }
+  ]
+}
