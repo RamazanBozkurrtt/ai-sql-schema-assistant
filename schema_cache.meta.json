@@ -1,0 +1,11 @@
+{
+  "schema_version": 4,
+  "database_identity": {
+    "server": "2be2bf6ff9ac",
+    "database": "WinPremiumCanpak"
+  },
+  "refreshed_at_utc": "2026-04-02T06:51:11.694933+00:00",
+  "table_count": 641,
+  "ai_table_count": 641,
+  "ai_char_count": 151442
+}

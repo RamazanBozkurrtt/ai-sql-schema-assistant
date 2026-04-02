@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI SQL Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-deep: #08111f;
+            --bg-mid: #111d34;
+            --surface: rgba(13, 22, 40, 0.82);
+            --surface-strong: rgba(11, 18, 33, 0.96);
+            --surface-soft: rgba(255, 255, 255, 0.05);
+            --border: rgba(149, 177, 255, 0.16);
+            --border-strong: rgba(118, 225, 194, 0.28);
+            --text-main: #f4f7ff;
+            --text-soft: #a5b6d9;
+            --accent: #59dcc4;
+            --accent-strong: #25c7a5;
+            --warm: #f0b25d;
+            --shadow: 0 28px 70px rgba(0, 0, 0, 0.35);
+            --mono: "IBM Plex Mono", monospace;
+            --display: "Space Grotesk", sans-serif;
+            --radius-xl: 28px;
+            --radius-lg: 22px;
+            --radius-md: 16px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: var(--display);
+            color: var(--text-main);
+            background:
+                radial-gradient(circle at 12% 18%, rgba(89, 220, 196, 0.20), transparent 0 26%),
+                radial-gradient(circle at 88% 14%, rgba(240, 178, 93, 0.18), transparent 0 22%),
+                radial-gradient(circle at 78% 78%, rgba(58, 112, 255, 0.12), transparent 0 20%),
+                linear-gradient(140deg, var(--bg-deep) 0%, #0b1629 42%, var(--bg-mid) 100%);
+            overflow-x: hidden;
+        }
+
+        body::before,
+        body::after {
+            content: "";
+            position: fixed;
+            inset: auto;
+            width: 22rem;
+            height: 22rem;
+            border-radius: 999px;
+            filter: blur(60px);
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.6;
+            animation: drift 14s ease-in-out infinite;
+        }
+
+        body::before {
+            top: -4rem;
+            right: -6rem;
+            background: rgba(89, 220, 196, 0.12);
+        }
+
+        body::after {
+            bottom: -7rem;
+            left: -5rem;
+            background: rgba(240, 178, 93, 0.12);
+            animation-delay: -7s;
+        }
+
+        @keyframes drift {
+            0%, 100% {
+                transform: translate3d(0, 0, 0) scale(1);
+            }
+            50% {
+                transform: translate3d(0, 18px, 0) scale(1.04);
+            }
+        }
+
+        .page-shell {
+            position: relative;
+            z-index: 1;
+            width: min(1180px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 28px 0 40px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .brand-mark {
+            width: 48px;
+            height: 48px;
+            display: grid;
+            place-items: center;
+            border-radius: 15px;
+            background:
+                linear-gradient(160deg, rgba(89, 220, 196, 0.18), rgba(89, 220, 196, 0.04)),
+                rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(89, 220, 196, 0.18);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+        }
+
+        .brand-mark svg {
+            width: 22px;
+            height: 22px;
+            stroke: var(--accent);
+        }
+
+        .brand-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .brand-copy strong {
+            font-size: 0.98rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .brand-copy span,
+        .status-pill {
+            color: var(--text-soft);
+            font-size: 0.86rem;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(16px);
+        }
+
+        .status-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 999px;
+            background: var(--accent);
+            box-shadow: 0 0 0 6px rgba(89, 220, 196, 0.12);
+        }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.08fr) minmax(340px, 0.92fr);
+            gap: 24px;
+            align-items: start;
+        }
+
+        .card {
+            position: relative;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+                var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xl);
+            backdrop-filter: blur(18px);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(140deg, rgba(255, 255, 255, 0.05), transparent 35%, transparent 70%, rgba(89, 220, 196, 0.08));
+            pointer-events: none;
+        }
+
+        .hero-card {
+            padding: 34px;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(89, 220, 196, 0.10);
+            border: 1px solid rgba(89, 220, 196, 0.18);
+            color: #dffbf5;
+            font-size: 0.84rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .eyebrow::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: var(--accent);
+        }
+
+        h1 {
+            margin: 20px 0 14px;
+            font-size: clamp(2.2rem, 5vw, 4.4rem);
+            line-height: 0.98;
+            letter-spacing: -0.05em;
+            max-width: 11ch;
+        }
+
+        .hero-copy {
+            margin: 0;
+            max-width: 58ch;
+            color: var(--text-soft);
+            font-size: 1.02rem;
+            line-height: 1.75;
+        }
+
+        .hero-emphasis {
+            color: var(--text-main);
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            margin: 28px 0;
+        }
+
+        .feature {
+            padding: 18px;
+            border-radius: var(--radius-lg);
+            background: var(--surface-soft);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .feature strong {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 0.96rem;
+        }
+
+        .feature p {
+            margin: 0;
+            color: var(--text-soft);
+            font-size: 0.88rem;
+            line-height: 1.6;
+        }
+
+        .suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 22px;
+        }
+
+        .suggestion-chip {
+            border: 0;
+            border-radius: 999px;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 0.88rem;
+            cursor: pointer;
+            transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .suggestion-chip:hover {
+            transform: translateY(-2px);
+            background: rgba(89, 220, 196, 0.12);
+            border-color: rgba(89, 220, 196, 0.18);
+        }
+
+        .composer-card {
+            padding: 28px;
+        }
+
+        .section-title {
+            margin: 0 0 6px;
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+        }
+
+        .section-copy {
+            margin: 0 0 22px;
+            color: var(--text-soft);
+            font-size: 0.94rem;
+            line-height: 1.65;
+        }
+
+        .form-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .field-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .field-label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 0.92rem;
+            color: #e7efff;
+        }
+
+        .field-label small {
+            color: var(--text-soft);
+            font-size: 0.8rem;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 190px;
+            resize: vertical;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 22px;
+            padding: 18px 18px 20px;
+            background: rgba(5, 10, 21, 0.55);
+            color: var(--text-main);
+            font: 500 0.98rem/1.7 var(--display);
+            outline: none;
+            transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+        }
+
+        textarea::placeholder {
+            color: #7f92bb;
+        }
+
+        textarea:focus {
+            border-color: rgba(89, 220, 196, 0.36);
+            box-shadow: 0 0 0 6px rgba(89, 220, 196, 0.10);
+            transform: translateY(-1px);
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            flex-wrap: wrap;
+        }
+
+        .action-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .explorer-layout {
+            display: grid;
+            grid-template-columns: minmax(240px, 0.78fr) minmax(0, 1.22fr);
+            gap: 18px;
+            margin-top: 18px;
+        }
+
+        .explorer-panel {
+            padding: 18px;
+            border-radius: 22px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .table-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 420px;
+            overflow-y: auto;
+        }
+
+        .table-item,
+        .result-chip {
+            width: 100%;
+            text-align: left;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-main);
+            padding: 12px 14px;
+            font: 500 0.92rem/1.4 var(--display);
+            cursor: pointer;
+            transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+        }
+
+        .table-item:hover,
+        .table-item.active,
+        .result-chip:hover {
+            transform: translateY(-1px);
+            background: rgba(89, 220, 196, 0.10);
+            border-color: rgba(89, 220, 196, 0.18);
+        }
+
+        .column-list,
+        .search-result-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .column-pill,
+        .table-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 9px 12px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-main);
+            font-size: 0.84rem;
+        }
+
+        .search-toolbar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        .search-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 18px;
+            margin-top: 18px;
+        }
+
+        .search-empty {
+            color: var(--text-soft);
+            font-size: 0.9rem;
+            line-height: 1.65;
+        }
+
+        .toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--text-main);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .toggle input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .toggle-track {
+            position: relative;
+            width: 58px;
+            height: 32px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.10);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            transition: background 180ms ease, border-color 180ms ease;
+        }
+
+        .toggle-track::after {
+            content: "";
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            background: #f9fbff;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+            transition: transform 180ms ease;
+        }
+
+        .toggle input:checked + .toggle-track {
+            background: rgba(89, 220, 196, 0.16);
+            border-color: rgba(89, 220, 196, 0.35);
+        }
+
+        .toggle input:checked + .toggle-track::after {
+            transform: translateX(26px);
+        }
+
+        .toggle-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .toggle-copy strong {
+            font-size: 0.92rem;
+        }
+
+        .toggle-copy span {
+            color: var(--text-soft);
+            font-size: 0.8rem;
+        }
+
+        .submit-button,
+        .copy-button,
+        .ghost-button,
+        .refresh-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            border: 0;
+            border-radius: 16px;
+            padding: 14px 18px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, opacity 160ms ease;
+        }
+
+        .submit-button {
+            min-width: 150px;
+            color: #06211e;
+            background: linear-gradient(135deg, #8af1de, #38c8ad);
+            box-shadow: 0 16px 30px rgba(37, 199, 165, 0.28);
+        }
+
+        .submit-button:hover,
+        .copy-button:hover:not(:disabled),
+        .ghost-button:hover:not(:disabled),
+        .refresh-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+        }
+
+        .submit-button:disabled {
+            opacity: 0.78;
+            cursor: wait;
+            transform: none;
+        }
+
+        .submit-button svg,
+        .copy-button svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .helper-note {
+            margin: 18px 0 0;
+            padding: 14px 16px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-soft);
+            font-size: 0.87rem;
+            line-height: 1.65;
+        }
+
+        .result-card {
+            margin-top: 24px;
+            padding: 28px;
+        }
+
+        .result-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+
+        .result-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .result-meta p {
+            margin: 0;
+            color: var(--text-soft);
+            font-size: 0.9rem;
+        }
+
+        .copy-button {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .ghost-button {
+            color: var(--text-main);
+            background: rgba(240, 178, 93, 0.10);
+            border: 1px solid rgba(240, 178, 93, 0.18);
+        }
+
+        .refresh-button {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .copy-button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .feedback-card {
+            margin-top: 22px;
+            padding: 22px;
+            border-radius: 22px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .feedback-grid {
+            display: grid;
+            grid-template-columns: 1.3fr 0.7fr;
+            gap: 16px;
+        }
+
+        .feedback-card textarea {
+            min-height: 150px;
+        }
+
+        .feedback-input {
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 18px;
+            padding: 14px 16px;
+            background: rgba(5, 10, 21, 0.55);
+            color: var(--text-main);
+            font: 500 0.95rem/1.5 var(--display);
+            outline: none;
+            transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+        }
+
+        .feedback-input::placeholder {
+            color: #7f92bb;
+        }
+
+        .feedback-input:focus {
+            border-color: rgba(240, 178, 93, 0.38);
+            box-shadow: 0 0 0 6px rgba(240, 178, 93, 0.10);
+            transform: translateY(-1px);
+        }
+
+        .feedback-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+
+        .feedback-note,
+        .saved-note {
+            margin: 0;
+            color: var(--text-soft);
+            font-size: 0.86rem;
+            line-height: 1.65;
+        }
+
+        .saved-note {
+            margin-bottom: 16px;
+            padding: 12px 14px;
+            border-radius: 16px;
+            color: #fff5df;
+            background: rgba(89, 220, 196, 0.10);
+            border: 1px solid rgba(89, 220, 196, 0.18);
+        }
+
+        .schema-note {
+            margin: 0 0 18px;
+            padding: 12px 14px;
+            border-radius: 16px;
+            color: #dffbf5;
+            background: rgba(89, 220, 196, 0.10);
+            border: 1px solid rgba(89, 220, 196, 0.18);
+            font-size: 0.86rem;
+            line-height: 1.6;
+        }
+
+        pre {
+            margin: 0;
+            min-height: 260px;
+            padding: 22px;
+            border-radius: 22px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
+                rgba(4, 9, 18, 0.88);
+            color: #dbe8ff;
+            font: 500 0.94rem/1.8 var(--mono);
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-x: auto;
+        }
+
+        pre.empty {
+            display: grid;
+            place-items: center;
+            color: #8598bf;
+            font-family: var(--display);
+            text-align: center;
+        }
+
+        .footer-copy {
+            margin-top: 16px;
+            color: var(--text-soft);
+            font-size: 0.82rem;
+            text-align: center;
+        }
+
+        @media (max-width: 960px) {
+            .hero-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .feedback-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .explorer-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .search-grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                max-width: 100%;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .page-shell {
+                width: min(100% - 20px, 100%);
+                padding-top: 18px;
+            }
+
+            .topbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .hero-card,
+            .composer-card,
+            .result-card {
+                padding: 20px;
+                border-radius: 24px;
+            }
+
+            .controls {
+                align-items: stretch;
+            }
+
+            .submit-button,
+            .copy-button,
+            .ghost-button,
+            .refresh-button {
+                width: 100%;
+            }
+
+            .search-toolbar {
+                grid-template-columns: 1fr;
+            }
+
+            pre {
+                min-height: 220px;
+                padding: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="page-shell">
+        <div class="topbar">
+            <a class="brand" href="/">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.7">
+                        <path d="M4 7h16" stroke="currentColor" stroke-linecap="round"/>
+                        <path d="M7 12h10" stroke="currentColor" stroke-linecap="round"/>
+                        <path d="M10 17h4" stroke="currentColor" stroke-linecap="round"/>
+                        <rect x="3" y="4" width="18" height="16" rx="4" stroke="currentColor"/>
+                    </svg>
+                </span>
+                <span class="brand-copy">
+                    <strong>AI SQL Assistant</strong>
+                    <span>Schema-aware local query workspace</span>
+                </span>
+            </a>
+
+            <div class="status-pill">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span>Yerel LLM, kural tabanlı üretim, tek sayfa akış</span>
+            </div>
+        </div>
+
+        <section class="hero-grid">
+            <article class="card hero-card">
+                <span class="eyebrow">Modern SQL workflow</span>
+                <h2>Şemayı anlayan daha güçlü bir arayüz.</h2>
+                <p class="hero-copy">
+                    Sorunu yaz, şema ve kurallarla beslenen akışı çalıştır, sonucu tek ekranda temiz bir şekilde incele.
+                    <span class="hero-emphasis">Mevcut form davranışı korunur;</span> sadece deneyim daha hızlı, daha okunaklı ve daha modern hale gelir.
+                </p>
+
+                <div class="feature-grid">
+                    <div class="feature">
+                        <strong>Schema Aware</strong>
+                        <p>Tablo, kolon ve ilişki bağlamını daha güvenli şekilde kullanmaya odaklanır.</p>
+                    </div>
+                    <div class="feature">
+                        <strong>Rule Guided</strong>
+                        <p>Tanımlı kurallar ve örneklerle yönlendirilen üretim akışını görünür kılar.</p>
+                    </div>
+                    <div class="feature">
+                        <strong>Local First</strong>
+                        <p>Ollama tabanlı yerel kullanım için sade, dikkat dağıtmayan bir çalışma alanı sunar.</p>
+                    </div>
+                </div>
+
+                <div class="suggestions" aria-label="Örnek sorular">
+                    <button class="suggestion-chip" type="button" data-suggestion="Müşterilerin siparişlerini getir">
+                        Müşterilerin siparişlerini getir
+                    </button>
+                    <button class="suggestion-chip" type="button" data-suggestion="Son 30 günde en çok sipariş veren müşterileri listele">
+                        Son 30 günün en aktif müşterileri
+                    </button>
+                    <button class="suggestion-chip" type="button" data-suggestion="Ürün adı, kategori adı ve tedarikçi bilgilerini birlikte getir">
+                        Ürün, kategori ve tedarikçi join
+                    </button>
+                </div>
+            </article>
+
+            <section class="card composer-card">
+                <h2 class="section-title">Sorgu üret</h2>
+                <p class="section-copy">
+                    Sorunu doğal dilde yaz. İstersen yalnızca SQL üretimini açarak açıklama katmanını kapatabilirsin.
+                </p>
+
+                {% if schema_refreshed %}
+                <p class="schema-note">Şema veritabanından yeniden çekildi ve `schema_cache.json` güncellendi.</p>
+                {% endif %}
+
+                <p class="schema-note" id="schemaRefreshStatus" {% if not schema_refreshed %}hidden{% endif %}>{% if schema_refreshed %}Åema veritabanÄ±ndan yeniden Ã§ekildi ve `schema_cache.json` gÃ¼ncellendi.{% endif %}</p>
+
+                <p class="schema-note" id="schemaRefreshMessage" hidden></p>
+
+                <form method="POST" id="assistantForm" class="form-stack">
+                    <div class="field-group">
+                        <label class="field-label" for="question">
+                            <span>İstek</span>
+                            <small>Serbest metin giriş alanı</small>
+                        </label>
+                        <textarea
+                            id="question"
+                            name="question"
+                            rows="5"
+                            placeholder="Örn: Müşterilerin son sipariş tarihleriyle birlikte toplam sipariş sayısını getir..."
+                        >{{ request.form.get('question', '') }}</textarea>
+                    </div>
+
+                    <div class="controls">
+                        <label class="toggle">
+                            <input
+                                type="checkbox"
+                                name="only_sql"
+                                {% if request.form.get('only_sql') %}checked{% endif %}
+                            >
+                            <span class="toggle-track" aria-hidden="true"></span>
+                            <span class="toggle-copy">
+                                <strong>Only SQL</strong>
+                                <span>Sadece sorgu dönsün, açıklama olmasın</span>
+                            </span>
+                        </label>
+
+                        <div class="action-group">
+                            <button class="refresh-button" type="button" id="refreshSchemaButton">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M20 12a8 8 0 1 1-2.34-5.66" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M20 4v6h-6" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span>Şemayı Güncelle</span>
+                            </button>
+
+                            <button class="submit-button" type="submit" name="action" value="generate" id="submitButton">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M5 12h14" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M13 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span>Generate</span>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </section>
+        </section>
+
+        <section class="card result-card">
+            <div class="result-header">
+                <div class="result-meta">
+                    <h2 class="section-title">Result</h2>
+                    <p>Üretilen çıktı burada okunaklı biçimde gösterilir.</p>
+                </div>
+
+                <button class="copy-button" id="copyButton" type="button" {% if not result %}disabled{% endif %}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                        <rect x="9" y="9" width="10" height="10" rx="2"></rect>
+                        <path d="M5 15V7a2 2 0 0 1 2-2h8"></path>
+                    </svg>
+                    <span>Kopyala</span>
+                </button>
+            </div>
+
+            <pre id="resultOutput" class="{% if not result %}empty{% endif %}">{% if result %}{{ result }}{% else %}Henüz çıktı yok. Bir soru gönderdiğinde yanıt burada görünecek.{% endif %}</pre>
+
+            {% if result %}
+            <section class="feedback-card">
+                <h3 class="section-title">Düzelt ve öğret</h3>
+                <p class="section-copy">
+                    Model yanlış SQL ürettiyse doğru sorguyu ve kısa nedenini gir. Bu örnek daha sonra prompt içine eklenir.
+                </p>
+
+                {% if learning_saved %}
+                <p class="saved-note">Düzeltme kaydedildi. Sonraki isteklerde öğrenme bağlamına eklenecek.</p>
+                {% endif %}
+
+                <form method="POST" class="form-stack" id="feedbackForm">
+                    <input type="hidden" name="question" value="{{ request.form.get('question', '') }}">
+                    {% if request.form.get('only_sql') %}
+                    <input type="hidden" name="only_sql" value="on">
+                    {% endif %}
+                    <textarea name="wrong_sql" hidden>{{ result }}</textarea>
+
+                    <div class="feedback-grid">
+                        <div class="field-group">
+                            <label class="field-label" for="correct_sql">
+                                <span>Doğru SQL</span>
+                                <small>Modelin yerine kaydedilecek sorgu</small>
+                            </label>
+                            <textarea
+                                id="correct_sql"
+                                name="correct_sql"
+                                rows="5"
+                                required
+                                placeholder="Doğru SQL sorgusunu buraya yaz..."
+                            >{{ request.form.get('correct_sql', '') }}</textarea>
+                        </div>
+
+                        <div class="field-group">
+                            <label class="field-label" for="reason">
+                                <span>Neden</span>
+                                <small>Opsiyonel açıklama</small>
+                            </label>
+                            <input
+                                class="feedback-input"
+                                id="reason"
+                                name="reason"
+                                type="text"
+                                placeholder="Örn: join eksikti, kolon adı yanlıştı..."
+                                value="{{ request.form.get('reason', '') }}"
+                            >
+                        </div>
+                    </div>
+
+                    <div class="feedback-actions">
+                        <p class="feedback-note">
+                            Kaydedilen düzeltmeler son 5 örnek olarak prompt'a eklenir ve modelin benzer hataları azaltmasına yardım eder.
+                        </p>
+                        <button class="ghost-button" type="submit">Düzeltmeyi Kaydet</button>
+                    </div>
+                </form>
+            </section>
+            {% endif %}
+
+            <div class="footer-copy">Tasarım mobil ve masaüstü kullanım için optimize edilmiştir.</div>
+        </section>
+
+        <section class="card result-card">
+            <div class="result-header">
+                <div class="result-meta">
+                    <h2 class="section-title">Schema Explorer</h2>
+                    <p>Tabloları gez, kolonları incele ve belirli kolonları hızlıca ara.</p>
+                </div>
+
+                <button class="refresh-button" type="button" id="loadSchemaButton">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                        <path d="M12 5v14" stroke-linecap="round"></path>
+                        <path d="M5 12h14" stroke-linecap="round"></path>
+                    </svg>
+                    <span>Schema Yükle</span>
+                </button>
+            </div>
+
+            <div class="search-grid">
+                <section class="explorer-panel">
+                    <h3 class="section-title">Sütun Arama</h3>
+                    <div class="search-toolbar">
+                        <input
+                            class="feedback-input"
+                            id="columnSearchInput"
+                            type="text"
+                            placeholder="Sütun adı ara"
+                        >
+                        <button class="ghost-button" type="button" id="columnSearchButton">Sütun Bul</button>
+                    </div>
+                </section>
+
+                <section class="explorer-panel">
+                    <h3 class="section-title">Tablo Arama</h3>
+                    <div class="search-toolbar">
+                        <input
+                            class="feedback-input"
+                            id="tableSearchInput"
+                            type="text"
+                            placeholder="Tablo adı ara"
+                        >
+                        <button class="ghost-button" type="button" id="tableSearchButton">Tablo Bul</button>
+                    </div>
+                </section>
+            </div>
+
+            <div class="explorer-layout">
+                <section class="explorer-panel">
+                    <h3 class="section-title">Tables</h3>
+                    <p class="section-copy">Butona bastığında şema listesi burada görünür.</p>
+                    <div class="table-list" id="tableList">
+                        <p class="search-empty">Henüz tablo listesi yüklenmedi.</p>
+                    </div>
+                </section>
+
+                <section class="explorer-panel">
+                    <h3 class="section-title">Columns</h3>
+                    <p class="section-copy" id="tableDetailTitle">Bir tablo seçtiğinde kolonları burada görünecek.</p>
+                    <div class="column-list" id="columnList">
+                        <p class="search-empty">Kolonlar için soldan bir tablo seç.</p>
+                    </div>
+                </section>
+            </div>
+
+            <div class="search-grid">
+                <section class="explorer-panel" style="margin-top: 18px;">
+                    <h3 class="section-title">Sütun Arama Sonucu</h3>
+                    <p class="section-copy">Kolon adına göre eşleşen tablolar burada listelenir.</p>
+                    <div class="search-result-list" id="columnSearchResults">
+                        <p class="search-empty">Bir kolon adı aradığında sonuçlar burada gösterilecek.</p>
+                    </div>
+                </section>
+
+                <section class="explorer-panel" style="margin-top: 18px;">
+                    <h3 class="section-title">Tablo Arama Sonucu</h3>
+                    <p class="section-copy">Tablo adına göre eşleşmeler ve kolonlar burada listelenir.</p>
+                    <div class="search-result-list" id="tableSearchResults">
+                        <p class="search-empty">Bir tablo adı aradığında sonuçlar burada gösterilecek.</p>
+                    </div>
+                </section>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const form = document.getElementById("assistantForm");
+        const feedbackForm = document.getElementById("feedbackForm");
+        const submitButton = document.getElementById("submitButton");
+        const submitLabel = submitButton ? submitButton.querySelector("span") : null;
+        const refreshSchemaButton = document.getElementById("refreshSchemaButton");
+        const refreshSchemaLabel = refreshSchemaButton ? refreshSchemaButton.querySelector("span") : null;
+        const schemaRefreshMessage = document.getElementById("schemaRefreshMessage");
+        const questionField = document.getElementById("question");
+        const resultOutput = document.getElementById("resultOutput");
+        const copyButton = document.getElementById("copyButton");
+        const suggestionButtons = document.querySelectorAll("[data-suggestion]");
+        const loadSchemaButton = document.getElementById("loadSchemaButton");
+        const columnSearchButton = document.getElementById("columnSearchButton");
+        const columnSearchInput = document.getElementById("columnSearchInput");
+        const tableSearchButton = document.getElementById("tableSearchButton");
+        const tableSearchInput = document.getElementById("tableSearchInput");
+        const tableList = document.getElementById("tableList");
+        const columnList = document.getElementById("columnList");
+        const tableDetailTitle = document.getElementById("tableDetailTitle");
+        const columnSearchResults = document.getElementById("columnSearchResults");
+        const tableSearchResults = document.getElementById("tableSearchResults");
+        let schemaTables = [];
+
+        if (form && submitButton && submitLabel) {
+            form.addEventListener("submit", () => {
+                const submitter = document.activeElement;
+
+                if (submitter === refreshSchemaButton && refreshSchemaButton && refreshSchemaLabel) {
+                    refreshSchemaButton.disabled = true;
+                    refreshSchemaLabel.textContent = "Güncelleniyor...";
+                    return;
+                }
+
+                submitButton.disabled = true;
+                submitLabel.textContent = "Generating...";
+            });
+        }
+
+        if (feedbackForm) {
+            feedbackForm.addEventListener("submit", () => {
+                const feedbackButton = feedbackForm.querySelector("button[type='submit']");
+
+                if (feedbackButton) {
+                    feedbackButton.disabled = true;
+                    feedbackButton.textContent = "Kaydediliyor...";
+                }
+            });
+        }
+
+        if (copyButton && resultOutput) {
+            copyButton.addEventListener("click", async () => {
+                const text = resultOutput.textContent.trim();
+
+                if (!text || resultOutput.classList.contains("empty")) {
+                    return;
+                }
+
+                try {
+                    await navigator.clipboard.writeText(text);
+                    copyButton.querySelector("span").textContent = "Kopyalandı";
+
+                    window.setTimeout(() => {
+                        copyButton.querySelector("span").textContent = "Kopyala";
+                    }, 1800);
+                } catch (error) {
+                    copyButton.querySelector("span").textContent = "Kopyalanamadı";
+
+                    window.setTimeout(() => {
+                        copyButton.querySelector("span").textContent = "Kopyala";
+                    }, 1800);
+                }
+            });
+        }
+
+        if (questionField && suggestionButtons.length) {
+            suggestionButtons.forEach((button) => {
+                button.addEventListener("click", () => {
+                    questionField.value = button.dataset.suggestion || "";
+                    questionField.focus();
+                    questionField.scrollIntoView({ behavior: "smooth", block: "center" });
+                });
+            });
+        }
+
+        function renderTableDetail(table) {
+            if (!tableDetailTitle || !columnList) {
+                return;
+            }
+
+            tableDetailTitle.textContent = `${table.name} tablosunun kolonları`;
+            columnList.innerHTML = "";
+
+            if (!table.columns.length) {
+                columnList.innerHTML = '<p class="search-empty">Bu tabloda gösterilecek kolon bulunamadı.</p>';
+                return;
+            }
+
+            table.columns.forEach((columnName) => {
+                const chip = document.createElement("span");
+                chip.className = "column-pill";
+                chip.textContent = columnName;
+                columnList.appendChild(chip);
+            });
+        }
+
+        function renderTableList(tables) {
+            if (!tableList) {
+                return;
+            }
+
+            tableList.innerHTML = "";
+
+            if (!tables.length) {
+                tableList.innerHTML = '<p class="search-empty">Tablo bulunamadı.</p>';
+                return;
+            }
+
+            tables.forEach((table, index) => {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "table-item";
+                button.textContent = table.name;
+
+                button.addEventListener("click", () => {
+                    tableList.querySelectorAll(".table-item").forEach((item) => item.classList.remove("active"));
+                    button.classList.add("active");
+                    renderTableDetail(table);
+                });
+
+                tableList.appendChild(button);
+
+                if (index === 0) {
+                    button.classList.add("active");
+                    renderTableDetail(table);
+                }
+            });
+        }
+
+        async function loadSchemaExplorer() {
+            if (!loadSchemaButton) {
+                return;
+            }
+
+            const label = loadSchemaButton.querySelector("span");
+            loadSchemaButton.disabled = true;
+
+            if (label) {
+                label.textContent = "Yükleniyor...";
+            }
+
+            try {
+                const response = await fetch("/schema?refresh=1");
+                const data = await response.json();
+                schemaTables = data.tables || [];
+                renderTableList(schemaTables);
+            } catch (error) {
+                if (tableList) {
+                    tableList.innerHTML = '<p class="search-empty">Şema yüklenemedi.</p>';
+                }
+            } finally {
+                loadSchemaButton.disabled = false;
+
+                if (label) {
+                    label.textContent = "Schema Yükle";
+                }
+            }
+        }
+
+        function setSchemaRefreshMessage(message, isError = false) {
+            if (!schemaRefreshMessage) {
+                return;
+            }
+
+            schemaRefreshMessage.hidden = false;
+            schemaRefreshMessage.textContent = message;
+            schemaRefreshMessage.style.color = isError ? "#ffb4b4" : "";
+        }
+
+        async function refreshSchemaAndReload() {
+            if (!refreshSchemaButton) {
+                return;
+            }
+
+            refreshSchemaButton.disabled = true;
+
+            if (refreshSchemaLabel) {
+                refreshSchemaLabel.textContent = "Guncelleniyor...";
+            }
+
+            try {
+                const response = await fetch("/schema?refresh=1");
+
+                if (!response.ok) {
+                    throw new Error("Schema refresh failed");
+                }
+
+                const data = await response.json();
+                schemaTables = data.tables || [];
+                renderTableList(schemaTables);
+                setSchemaRefreshMessage("Schema cache was refreshed and explorer data was reloaded.");
+            } catch (error) {
+                if (tableList) {
+                    tableList.innerHTML = '<p class="search-empty">Schema yuklenemedi.</p>';
+                }
+
+                setSchemaRefreshMessage("Schema refresh failed. Check the server log for details.", true);
+            } finally {
+                refreshSchemaButton.disabled = false;
+
+                if (refreshSchemaLabel) {
+                    refreshSchemaLabel.textContent = "Semayi Guncelle";
+                }
+            }
+        }
+
+        function renderSearchResults(matches) {
+            if (!columnSearchResults) {
+                return;
+            }
+
+            columnSearchResults.innerHTML = "";
+
+            if (!matches.length) {
+                columnSearchResults.innerHTML = '<p class="search-empty">Eşleşme bulunamadı.</p>';
+                return;
+            }
+
+            matches.forEach((match) => {
+                const wrapper = document.createElement("div");
+                wrapper.className = "explorer-panel";
+                wrapper.style.padding = "16px";
+                wrapper.style.flex = "1 1 280px";
+
+                const label = document.createElement("p");
+                label.className = "search-empty";
+                label.textContent = "Sütun";
+                wrapper.appendChild(label);
+
+                const title = document.createElement("strong");
+                title.textContent = match.column;
+                wrapper.appendChild(title);
+
+                const tableWrap = document.createElement("div");
+                tableWrap.className = "column-list";
+
+                const tableLabel = document.createElement("p");
+                tableLabel.className = "search-empty";
+                tableLabel.style.width = "100%";
+                tableLabel.textContent = "Bulunduğu Tablolar";
+                tableWrap.appendChild(tableLabel);
+
+                (match.tables || []).forEach((tableName) => {
+                    const pill = document.createElement("span");
+                    pill.className = "table-pill";
+                    pill.textContent = tableName;
+                    tableWrap.appendChild(pill);
+                });
+
+                wrapper.appendChild(tableWrap);
+                columnSearchResults.appendChild(wrapper);
+            });
+        }
+
+        function renderTableSearchResults(matches) {
+            if (!tableSearchResults) {
+                return;
+            }
+
+            tableSearchResults.innerHTML = "";
+
+            if (!matches.length) {
+                tableSearchResults.innerHTML = '<p class="search-empty">Eşleşme bulunamadı.</p>';
+                return;
+            }
+
+            matches.forEach((match) => {
+                const wrapper = document.createElement("div");
+                wrapper.className = "explorer-panel";
+                wrapper.style.padding = "16px";
+                wrapper.style.flex = "1 1 280px";
+
+                const label = document.createElement("p");
+                label.className = "search-empty";
+                label.textContent = "Tablo";
+                wrapper.appendChild(label);
+
+                const title = document.createElement("strong");
+                title.textContent = match.table;
+                wrapper.appendChild(title);
+
+                const columnWrap = document.createElement("div");
+                columnWrap.className = "column-list";
+
+                const columnLabel = document.createElement("p");
+                columnLabel.className = "search-empty";
+                columnLabel.style.width = "100%";
+                columnLabel.textContent = "Kolonlar";
+                columnWrap.appendChild(columnLabel);
+
+                (match.columns || []).forEach((columnName) => {
+                    const pill = document.createElement("span");
+                    pill.className = "column-pill";
+                    pill.textContent = columnName;
+                    columnWrap.appendChild(pill);
+                });
+
+                if (!columnWrap.children.length) {
+                    const empty = document.createElement("p");
+                    empty.className = "search-empty";
+                    empty.textContent = "Bu tablo için kolon bilgisi bulunamadı.";
+                    wrapper.appendChild(empty);
+                } else {
+                    wrapper.appendChild(columnWrap);
+                }
+
+                tableSearchResults.appendChild(wrapper);
+            });
+        }
+
+        async function findColumn() {
+            if (!columnSearchInput) {
+                return;
+            }
+
+            const columnName = columnSearchInput.value.trim();
+            if (!columnName) {
+                renderSearchResults([]);
+                return;
+            }
+
+            if (columnSearchButton) {
+                columnSearchButton.disabled = true;
+                columnSearchButton.textContent = "Aranıyor...";
+            }
+
+            try {
+                const response = await fetch("/search-column", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ column: columnName })
+                });
+                const data = await response.json();
+                renderSearchResults(data.matches || []);
+            } catch (error) {
+                if (columnSearchResults) {
+                    columnSearchResults.innerHTML = '<p class="search-empty">Kolon araması başarısız oldu.</p>';
+                }
+            } finally {
+                if (columnSearchButton) {
+                    columnSearchButton.disabled = false;
+                    columnSearchButton.textContent = "Sütun Bul";
+                }
+            }
+        }
+
+        async function findTable() {
+            if (!tableSearchInput) {
+                return;
+            }
+
+            const tableName = tableSearchInput.value.trim();
+            if (!tableName) {
+                renderTableSearchResults([]);
+                return;
+            }
+
+            if (tableSearchButton) {
+                tableSearchButton.disabled = true;
+                tableSearchButton.textContent = "Aranıyor...";
+            }
+
+            try {
+                const response = await fetch("/search-table", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ table: tableName })
+                });
+                const data = await response.json();
+                renderTableSearchResults(data.matches || []);
+            } catch (error) {
+                if (tableSearchResults) {
+                    tableSearchResults.innerHTML = '<p class="search-empty">Tablo araması başarısız oldu.</p>';
+                }
+            } finally {
+                if (tableSearchButton) {
+                    tableSearchButton.disabled = false;
+                    tableSearchButton.textContent = "Tablo Bul";
+                }
+            }
+        }
+
+        if (loadSchemaButton) {
+            loadSchemaButton.addEventListener("click", loadSchemaExplorer);
+        }
+
+        if (refreshSchemaButton) {
+            refreshSchemaButton.addEventListener("click", refreshSchemaAndReload);
+        }
+
+        if (columnSearchButton) {
+            columnSearchButton.addEventListener("click", findColumn);
+        }
+
+        if (tableSearchButton) {
+            tableSearchButton.addEventListener("click", findTable);
+        }
+
+        if (columnSearchInput) {
+            columnSearchInput.addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    findColumn();
+                }
+            });
+        }
+
+        if (tableSearchInput) {
+            tableSearchInput.addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    findTable();
+                }
+            });
+        }
+    </script>
+</body>
+</html>
