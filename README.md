@@ -1,126 +1,132 @@
-# AI SQL Schema Assistant 🚀
+# AI SQL Schema Assistant
 
-A local AI-powered SQL assistant that understands complex database schemas and generates optimized SQL queries using rules and examples.
+A local AI-powered assistant for complex Microsoft SQL Server schemas. It extracts schema metadata, builds local caches, and helps explain legacy ERP tables, columns, and relationships.
 
-## 🔥 Features
+The project is designed to run locally. Database credentials, schema caches, company rules, and procedure dumps are ignored by Git.
 
-* 🔍 Automatic database schema extraction (tables, columns, relations)
-* 🧠 Intelligent schema analysis (detects possible joins and relationships)
-* 📜 Rule-based query generation (custom business logic)
-* 📚 Example-based learning (few-shot prompting)
-* 🔒 Fully local AI (no data leaves your machine)
-* ⚡ Works with MSSQL + Ollama + DeepSeek-Coder
+## Features
 
----
+* Extracts SQL Server tables, columns, and foreign-key relations
+* Builds lightweight local schema/search caches
+* Explains table intent, similar columns, likely joins, and legacy relationships
+* Uses optional, manually maintained local rules for better schema answers
+* Refuses SQL generation and answers with schema/relationship explanations instead
+* Uses Ollama locally for LLM responses
 
-## 🧠 How It Works
+## Requirements
 
-1. Extracts database schema from MSSQL
-2. Converts schema into AI-readable format
-3. Applies custom rules and examples
-4. Sends prompt to local LLM (Ollama)
-5. Generates SQL queries
+* Python 3.10+
+* Microsoft SQL Server access
+* Microsoft ODBC Driver 17 or 18 for SQL Server
+* Ollama installed and running
 
----
+## Setup
 
-## 🛠️ Tech Stack
-
-* Python
-* MSSQL (SQL Server)
-* Ollama (local LLM runtime)
-* DeepSeek-Coder (6.7B)
-
----
-
-## ⚙️ Setup
-
-### 1. Install Ollama
-
-Download from: https://ollama.com
+1. Install Python dependencies:
 
 ```bash
-ollama run deepseek-coder:6.7b
+pip install -r requirements.txt
 ```
 
----
-
-### 2. Install dependencies
+2. Install and start Ollama:
 
 ```bash
-pip install pyodbc requests
+ollama pull qwen2.5-coder:14b
+ollama serve
 ```
 
----
+If Ollama is already running, `ollama serve` may say the port is already in use. That is fine.
 
-### 3. Configure database connection
-
-Edit connection string in code:
-
-```python
-SERVER=localhost,1433
-DATABASE=Northwind
-UID=sa
-PWD=YourPassword
-```
-
----
-
-### 4. Add rules & examples
-
-Edit `rules.json`:
-
-* Define business rules
-* Add correct SQL examples
-
----
-
-### 5. Run project
+3. Create your local environment file:
 
 ```bash
-python main.py
+copy .env.example .env
 ```
 
----
+Edit `.env` with your SQL Server settings:
 
-## 🧪 Example
-
-Input:
-
-```
-"Müşterilerin siparişlerini getir"
-```
-
-Output:
-
-```sql
-SELECT c.CompanyName, o.OrderID
-FROM Customers c
-JOIN Orders o ON c.CustomerID = o.CustomerID
+```env
+MSSQL_SERVER=localhost,1433
+MSSQL_DATABASE=YourDatabaseName
+MSSQL_UID=your_user
+MSSQL_PWD=your_password
+MSSQL_TRUST_SERVER_CERTIFICATE=yes
+OLLAMA_MODEL=qwen2.5-coder:14b
 ```
 
----
+For Windows authentication, set `MSSQL_TRUSTED_CONNECTION=yes` and remove or ignore `MSSQL_UID` / `MSSQL_PWD`.
 
-## 💡 Why This Project?
+4. Optionally create local domain rules:
 
-Modern databases are complex and poorly documented.
-This tool helps developers:
+```bash
+copy rules.example.json rules.json
+```
 
-* Understand messy schemas
-* Avoid wrong joins
-* Generate correct SQL faster
-* Apply business rules automatically
+This file is optional and starts empty:
 
----
+```json
+{
+  "rules": []
+}
+```
 
-## 🔮 Future Improvements
+The app does not auto-generate or auto-save these rules. Add only reviewed, generalized schema or relationship guidance when the database schema alone is not enough.
 
-* Query validation
-* Auto-learning from feedback
-* Spring Boot integration
-* UI dashboard
+## Run
 
----
+Start the web app:
 
-## 📌 Author
+```bash
+python app.py
+```
 
-Ramazan Bozkurt
+Open:
+
+```text
+http://127.0.0.1:5000
+```
+
+On first schema access, the app connects to SQL Server and creates local cache files:
+
+* `schema_cache.json`
+* `schema_cache.ai.json`
+* `schema_cache.meta.json`
+* `schema_search_index.json`
+
+Use the refresh schema action in the UI after database schema changes.
+
+## Usage
+
+Ask schema questions in Turkish or English, for example:
+
+```text
+Sip_Siparis ile Sip_SiparisDetay arasındaki fark nedir?
+```
+
+The assistant explains schema intent, table relationships, candidate columns, and legacy naming tradeoffs. It does not generate SQL queries or stored procedures.
+
+The `/schema`, `/search-column`, and `/search-table` endpoints depend on the local schema cache. If no cache exists yet, they need a working SQL Server connection to build it.
+
+`rules.json` is only a manual hint layer. The app works without it, and an empty `rules.json` is valid.
+
+## Private Data Safety
+
+The following local files are ignored by Git and should not be committed:
+
+* `.env` and other local environment files
+* generated schema caches such as `schema_cache*.json` and `schema_search_index.json`
+* local prompt assets: `rules.json`
+* procedure dumps under `sql_procedures/`
+* Python runtime files under `__pycache__/`
+
+Keep only the `*.example.json` files generic enough to share publicly.
+
+## Troubleshooting
+
+If you see `MSSQL_SERVER and MSSQL_DATABASE must be configured`, create `.env` or set the matching environment variables.
+
+If `pyodbc` cannot connect, confirm that the SQL Server ODBC driver is installed and that the driver name in `.env` matches your machine, for example `ODBC Driver 17 for SQL Server` or `ODBC Driver 18 for SQL Server`.
+
+If the app cannot reach Ollama, make sure Ollama is running and that the model in `OLLAMA_MODEL` has been pulled.
+
+If answers are too generic, add reviewed schema/domain rules to `rules.json`, or add local `.sql` procedure files under `sql_procedures/` as relationship evidence. Do not commit those private files.

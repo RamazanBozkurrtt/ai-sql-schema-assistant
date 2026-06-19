@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI SQL Assistant</title>
+    <title>AI Schema Assistant</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
@@ -460,68 +460,6 @@
             line-height: 1.65;
         }
 
-        .toggle {
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-            color: var(--text-main);
-            cursor: pointer;
-            user-select: none;
-        }
-
-        .toggle input {
-            position: absolute;
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .toggle-track {
-            position: relative;
-            width: 58px;
-            height: 32px;
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.10);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            transition: background 180ms ease, border-color 180ms ease;
-        }
-
-        .toggle-track::after {
-            content: "";
-            position: absolute;
-            top: 4px;
-            left: 4px;
-            width: 22px;
-            height: 22px;
-            border-radius: 999px;
-            background: #f9fbff;
-            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
-            transition: transform 180ms ease;
-        }
-
-        .toggle input:checked + .toggle-track {
-            background: rgba(89, 220, 196, 0.16);
-            border-color: rgba(89, 220, 196, 0.35);
-        }
-
-        .toggle input:checked + .toggle-track::after {
-            transform: translateX(26px);
-        }
-
-        .toggle-copy {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .toggle-copy strong {
-            font-size: 0.92rem;
-        }
-
-        .toggle-copy span {
-            color: var(--text-soft);
-            font-size: 0.8rem;
-        }
-
         .submit-button,
         .copy-button,
         .ghost-button,
@@ -626,24 +564,6 @@
             cursor: not-allowed;
         }
 
-        .feedback-card {
-            margin-top: 22px;
-            padding: 22px;
-            border-radius: 22px;
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-        }
-
-        .feedback-grid {
-            display: grid;
-            grid-template-columns: 1.3fr 0.7fr;
-            gap: 16px;
-        }
-
-        .feedback-card textarea {
-            min-height: 150px;
-        }
-
         .feedback-input {
             width: 100%;
             border: 1px solid rgba(255, 255, 255, 0.10);
@@ -664,32 +584,6 @@
             border-color: rgba(240, 178, 93, 0.38);
             box-shadow: 0 0 0 6px rgba(240, 178, 93, 0.10);
             transform: translateY(-1px);
-        }
-
-        .feedback-actions {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-            flex-wrap: wrap;
-            margin-top: 16px;
-        }
-
-        .feedback-note,
-        .saved-note {
-            margin: 0;
-            color: var(--text-soft);
-            font-size: 0.86rem;
-            line-height: 1.65;
-        }
-
-        .saved-note {
-            margin-bottom: 16px;
-            padding: 12px 14px;
-            border-radius: 16px;
-            color: #fff5df;
-            background: rgba(89, 220, 196, 0.10);
-            border: 1px solid rgba(89, 220, 196, 0.18);
         }
 
         .schema-note {
@@ -740,10 +634,6 @@
             }
 
             .feature-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .feedback-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -813,24 +703,24 @@
                     </svg>
                 </span>
                 <span class="brand-copy">
-                    <strong>AI SQL Assistant</strong>
-                    <span>Schema-aware local query workspace</span>
+                    <strong>AI Schema Assistant</strong>
+                    <span>Schema-aware local ERP analysis workspace</span>
                 </span>
             </a>
 
             <div class="status-pill">
                 <span class="status-dot" aria-hidden="true"></span>
-                <span>Yerel LLM, kural tabanlı üretim, tek sayfa akış</span>
+                <span>Yerel LLM, şema ve ilişki analizi</span>
             </div>
         </div>
 
         <section class="hero-grid">
             <article class="card hero-card">
-                <span class="eyebrow">Modern SQL workflow</span>
+                <span class="eyebrow">Schema Analysis Workflow</span>
                 <h2>Şemayı anlayan daha güçlü bir arayüz.</h2>
                 <p class="hero-copy">
-                    Sorunu yaz, şema ve kurallarla beslenen akışı çalıştır, sonucu tek ekranda temiz bir şekilde incele.
-                    <span class="hero-emphasis">Mevcut form davranışı korunur;</span> sadece deneyim daha hızlı, daha okunaklı ve daha modern hale gelir.
+                    Sorunu yaz, şema ve kurallarla beslenen analiz akışını çalıştır, sonucu tek ekranda temiz bir şekilde incele.
+                    <span class="hero-emphasis">Bu araç SQL üretmez;</span> tablo, kolon ve ilişki mantığını açıklamaya odaklanır.
                 </p>
 
                 <div class="feature-grid">
@@ -840,7 +730,7 @@
                     </div>
                     <div class="feature">
                         <strong>Rule Guided</strong>
-                        <p>Tanımlı kurallar ve örneklerle yönlendirilen üretim akışını görünür kılar.</p>
+                        <p>Şema kuralları ve repo kullanımlarıyla desteklenen analiz akışını görünür kılar.</p>
                     </div>
                     <div class="feature">
                         <strong>Local First</strong>
@@ -849,22 +739,22 @@
                 </div>
 
                 <div class="suggestions" aria-label="Örnek sorular">
-                    <button class="suggestion-chip" type="button" data-suggestion="Müşterilerin siparişlerini getir">
-                        Müşterilerin siparişlerini getir
+                    <button class="suggestion-chip" type="button" data-suggestion="Sip_Siparis ile Sip_SiparisDetay arasındaki fark nedir?">
+                        Sipariş ve detay farkı
                     </button>
-                    <button class="suggestion-chip" type="button" data-suggestion="Son 30 günde en çok sipariş veren müşterileri listele">
-                        Son 30 günün en aktif müşterileri
+                    <button class="suggestion-chip" type="button" data-suggestion="Cari bilgisi hangi tablolarda tutuluyor ve hangisi tercih edilmeli?">
+                        Cari bilgisi nerede?
                     </button>
-                    <button class="suggestion-chip" type="button" data-suggestion="Ürün adı, kategori adı ve tedarikçi bilgilerini birlikte getir">
-                        Ürün, kategori ve tedarikçi join
+                    <button class="suggestion-chip" type="button" data-suggestion="Ürün ve stok tabloları arasında nasıl bir ilişki var?">
+                        Ürün ve stok ilişkisi
                     </button>
                 </div>
             </article>
 
             <section class="card composer-card">
-                <h2 class="section-title">Sorgu üret</h2>
+                <h2 class="section-title">Şema Asistanı</h2>
                 <p class="section-copy">
-                    Sorunu doğal dilde yaz. İstersen yalnızca SQL üretimini açarak açıklama katmanını kapatabilirsin.
+                    Sorunu doğal dilde yaz. Asistan yalnızca veritabanı şeması, tablo/kolon anlamı ve ilişkiler hakkında açıklama üretir.
                 </p>
 
                 {% if schema_refreshed %}
@@ -885,24 +775,11 @@
                             id="question"
                             name="question"
                             rows="5"
-                            placeholder="Örn: Müşterilerin son sipariş tarihleriyle birlikte toplam sipariş sayısını getir..."
+                            placeholder="Örn: Sip_Siparis ile Sip_SiparisDetay arasındaki fark nedir?"
                         >{{ request.form.get('question', '') }}</textarea>
                     </div>
 
                     <div class="controls">
-                        <label class="toggle">
-                            <input
-                                type="checkbox"
-                                name="only_sql"
-                                {% if request.form.get('only_sql') %}checked{% endif %}
-                            >
-                            <span class="toggle-track" aria-hidden="true"></span>
-                            <span class="toggle-copy">
-                                <strong>Only SQL</strong>
-                                <span>Sadece sorgu dönsün, açıklama olmasın</span>
-                            </span>
-                        </label>
-
                         <div class="action-group">
                             <button class="refresh-button" type="button" id="refreshSchemaButton">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -917,7 +794,7 @@
                                     <path d="M5 12h14" stroke-linecap="round" stroke-linejoin="round"/>
                                     <path d="M13 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"/>
                                 </svg>
-                                <span>Generate</span>
+                                <span>Analiz Et</span>
                             </button>
                         </div>
                     </div>
@@ -928,8 +805,8 @@
         <section class="card result-card">
             <div class="result-header">
                 <div class="result-meta">
-                    <h2 class="section-title">Result</h2>
-                    <p>Üretilen çıktı burada okunaklı biçimde gösterilir.</p>
+                    <h2 class="section-title">Yanıt</h2>
+                    <p>Şema analizi burada okunaklı biçimde gösterilir.</p>
                 </div>
 
                 <button class="copy-button" id="copyButton" type="button" {% if not result %}disabled{% endif %}>
@@ -942,65 +819,6 @@
             </div>
 
             <pre id="resultOutput" class="{% if not result %}empty{% endif %}">{% if result %}{{ result }}{% else %}Henüz çıktı yok. Bir soru gönderdiğinde yanıt burada görünecek.{% endif %}</pre>
-
-            {% if result %}
-            <section class="feedback-card">
-                <h3 class="section-title">Düzelt ve öğret</h3>
-                <p class="section-copy">
-                    Model yanlış SQL ürettiyse doğru sorguyu ve kısa nedenini gir. Bu örnek daha sonra prompt içine eklenir.
-                </p>
-
-                {% if learning_saved %}
-                <p class="saved-note">Düzeltme kaydedildi. Sonraki isteklerde öğrenme bağlamına eklenecek.</p>
-                {% endif %}
-
-                <form method="POST" class="form-stack" id="feedbackForm">
-                    <input type="hidden" name="question" value="{{ request.form.get('question', '') }}">
-                    {% if request.form.get('only_sql') %}
-                    <input type="hidden" name="only_sql" value="on">
-                    {% endif %}
-                    <textarea name="wrong_sql" hidden>{{ result }}</textarea>
-
-                    <div class="feedback-grid">
-                        <div class="field-group">
-                            <label class="field-label" for="correct_sql">
-                                <span>Doğru SQL</span>
-                                <small>Modelin yerine kaydedilecek sorgu</small>
-                            </label>
-                            <textarea
-                                id="correct_sql"
-                                name="correct_sql"
-                                rows="5"
-                                required
-                                placeholder="Doğru SQL sorgusunu buraya yaz..."
-                            >{{ request.form.get('correct_sql', '') }}</textarea>
-                        </div>
-
-                        <div class="field-group">
-                            <label class="field-label" for="reason">
-                                <span>Neden</span>
-                                <small>Opsiyonel açıklama</small>
-                            </label>
-                            <input
-                                class="feedback-input"
-                                id="reason"
-                                name="reason"
-                                type="text"
-                                placeholder="Örn: join eksikti, kolon adı yanlıştı..."
-                                value="{{ request.form.get('reason', '') }}"
-                            >
-                        </div>
-                    </div>
-
-                    <div class="feedback-actions">
-                        <p class="feedback-note">
-                            Kaydedilen düzeltmeler son 5 örnek olarak prompt'a eklenir ve modelin benzer hataları azaltmasına yardım eder.
-                        </p>
-                        <button class="ghost-button" type="submit">Düzeltmeyi Kaydet</button>
-                    </div>
-                </form>
-            </section>
-            {% endif %}
 
             <div class="footer-copy">Tasarım mobil ve masaüstü kullanım için optimize edilmiştir.</div>
         </section>
@@ -1089,7 +907,6 @@
 
     <script>
         const form = document.getElementById("assistantForm");
-        const feedbackForm = document.getElementById("feedbackForm");
         const submitButton = document.getElementById("submitButton");
         const submitLabel = submitButton ? submitButton.querySelector("span") : null;
         const refreshSchemaButton = document.getElementById("refreshSchemaButton");
@@ -1122,18 +939,7 @@
                 }
 
                 submitButton.disabled = true;
-                submitLabel.textContent = "Generating...";
-            });
-        }
-
-        if (feedbackForm) {
-            feedbackForm.addEventListener("submit", () => {
-                const feedbackButton = feedbackForm.querySelector("button[type='submit']");
-
-                if (feedbackButton) {
-                    feedbackButton.disabled = true;
-                    feedbackButton.textContent = "Kaydediliyor...";
-                }
+                submitLabel.textContent = "Analiz ediliyor...";
             });
         }
 
@@ -1239,7 +1045,9 @@
             }
 
             try {
-                const response = await fetch("/schema?refresh=1");
+                const response = await fetch("/schema?refresh=1", {
+                    cache: "no-store"
+                });
                 const data = await response.json();
                 schemaTables = data.tables || [];
                 renderTableList(schemaTables);
@@ -1278,7 +1086,9 @@
             }
 
             try {
-                const response = await fetch("/schema?refresh=1");
+                const response = await fetch("/schema?refresh=1", {
+                    cache: "no-store"
+                });
 
                 if (!response.ok) {
                     throw new Error("Schema refresh failed");
@@ -1426,6 +1236,7 @@
             try {
                 const response = await fetch("/search-column", {
                     method: "POST",
+                    cache: "no-store",
                     headers: {
                         "Content-Type": "application/json"
                     },
@@ -1464,6 +1275,7 @@
             try {
                 const response = await fetch("/search-table", {
                     method: "POST",
+                    cache: "no-store",
                     headers: {
                         "Content-Type": "application/json"
                     },

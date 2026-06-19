@@ -1,103 +1,104 @@
 import pyodbc
 import json
 import logging
+import os
 import re
 import requests
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 
 from schema_optimizer import build_optimized_schema, normalize_identifier
 
 
-CONNECTION_STRING = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=localhost,1433;"
-    "DATABASE=WinPremiumCanpak;"
-    "UID=sa;"
-    "PWD=YourStrong!Pass123;"
-    "TrustServerCertificate=yes;"
-)
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def _load_local_env_file() -> None:
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
+def build_connection_string() -> str:
+    explicit_connection_string = os.getenv("MSSQL_CONNECTION_STRING", "").strip()
+    if explicit_connection_string:
+        return explicit_connection_string
+
+    driver = os.getenv("MSSQL_DRIVER", "ODBC Driver 17 for SQL Server").strip()
+    server = os.getenv("MSSQL_SERVER", "").strip()
+    database = os.getenv("MSSQL_DATABASE", "").strip()
+    username = os.getenv("MSSQL_UID", "").strip()
+    password = os.getenv("MSSQL_PWD", "").strip()
+    trust_server_certificate = os.getenv("MSSQL_TRUST_SERVER_CERTIFICATE", "yes").strip()
+    trusted_connection = os.getenv("MSSQL_TRUSTED_CONNECTION", "").strip().lower()
+
+    if not server or not database:
+        raise RuntimeError("MSSQL_SERVER and MSSQL_DATABASE must be configured in .env or environment variables.")
+
+    parts = [
+        f"DRIVER={{{driver}}}",
+        f"SERVER={server}",
+        f"DATABASE={database}",
+        f"TrustServerCertificate={trust_server_certificate}",
+    ]
+
+    if trusted_connection in {"1", "true", "yes"}:
+        parts.append("Trusted_Connection=yes")
+    else:
+        if not username or not password:
+            raise RuntimeError("MSSQL_UID and MSSQL_PWD must be configured, or set MSSQL_TRUSTED_CONNECTION=yes.")
+        parts.extend([f"UID={username}", f"PWD={password}"])
+
+    return ";".join(parts) + ";"
+
+
+_load_local_env_file()
 
 _UNSAFE_SQL_PATTERN = re.compile(
     r"\b(?:DROP|DELETE|UPDATE|ALTER|TRUNCATE)\b",
     re.IGNORECASE,
 )
-_CODE_FENCE_PATTERN = re.compile(r"```(?:sql)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
 _JSON_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*(\{.*\}|\[.*\])\s*```", re.IGNORECASE | re.DOTALL)
-_ROW_LIMIT_PATTERN = re.compile(
-    r"\b(?:LIMIT\s+\d+|TOP\s*\(?\s*\d+\s*\)?|FETCH\s+NEXT\s+\d+\s+ROWS\s+ONLY)\b",
-    re.IGNORECASE,
+_SQL_LIKE_RESPONSE_PATTERN = re.compile(
+    r"(?is)^\s*(?:```sql\s*)?(?:WITH|SELECT|CREATE|ALTER|INSERT|UPDATE|DELETE|MERGE|DROP|TRUNCATE|EXEC)\b"
 )
-_SELECT_DISTINCT_PATTERN = re.compile(r"^\s*SELECT\s+DISTINCT\b", re.IGNORECASE)
-_SELECT_PATTERN = re.compile(r"^\s*SELECT\b", re.IGNORECASE)
-_SQL_TABLE_REF_PATTERN = re.compile(
-    r"\b(?:FROM|JOIN)\s+((?:\[[^\]]+\]|[#@A-Za-z_][\w$#@]*)(?:\.(?:\[[^\]]+\]|[#@A-Za-z_][\w$#@]*))?)"
-    r"(?:\s+(?:AS\s+)?(\[[^\]]+\]|[#@A-Za-z_][\w$#@]*))?",
-    re.IGNORECASE,
-)
-_SQL_QUALIFIED_COLUMN_PATTERN = re.compile(
-    r"(\[[^\]]+\]|[#@A-Za-z_][\w$#@]*)\s*\.\s*(\[[^\]]+\]|[#@A-Za-z_][\w$#@]*|\*)",
-    re.IGNORECASE,
-)
-_SQL_CTE_PATTERN = re.compile(
-    r"(?:\bWITH\b|,)\s*(\[[^\]]+\]|[#@A-Za-z_][\w$#@]*)\s+AS\s*\(",
-    re.IGNORECASE,
-)
-_STAR_SELECT_PATTERN = re.compile(r"(?i)\bSELECT\s+(?:TOP\s*\(?\s*\d+\s*\)?\s+)?(?:DISTINCT\s+)?\*")
-_ALIASED_STAR_SELECT_PATTERN = re.compile(r"(?i)\b[#@A-Za-z_][\w$#@]*\s*\.\s*\*")
-_PROCEDURAL_SQL_PATTERN = re.compile(r"\b(?:CREATE\s+PROCEDURE|ALTER\s+PROCEDURE|BEGIN\b|END\b)\b", re.IGNORECASE)
 _QUESTION_TERM_PATTERN = re.compile(r"\w+", re.UNICODE)
-RULES_FILE = Path(__file__).resolve().parent / "rules.json"
-LEARNING_FILE = Path(__file__).resolve().parent / "learning.json"
-SCHEMA_CACHE_FILE = Path(__file__).resolve().parent / "schema_cache.json"
-SCHEMA_CACHE_META_FILE = Path(__file__).resolve().parent / "schema_cache.meta.json"
-SCHEMA_AI_CACHE_FILE = Path(__file__).resolve().parent / "schema_cache.ai.json"
-SCHEMA_CACHE_VERSION = 4
+RULES_FILE = PROJECT_ROOT / "rules.json"
+SCHEMA_CACHE_FILE = PROJECT_ROOT / "schema_cache.json"
+SCHEMA_CACHE_META_FILE = PROJECT_ROOT / "schema_cache.meta.json"
+SCHEMA_AI_CACHE_FILE = PROJECT_ROOT / "schema_cache.ai.json"
+SCHEMA_SEARCH_INDEX_FILE = PROJECT_ROOT / "schema_search_index.json"
+SCHEMA_CACHE_VERSION = 5
 LOGGER = logging.getLogger(__name__)
-OLLAMA_MODEL = "qwen2.5-coder:14b"
-SQL_SYSTEM_PROMPT = """
-You are a Microsoft SQL Server assistant.
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:14b")
+ANALYSIS_SYSTEM_PROMPT = """
+You are a Turkish-speaking SQL Server schema assistant for a legacy ERP codebase.
 
 Guidelines:
-- Prefer using the exact table and column names that appear in the provided schema.
-- Do not invent generic demo tables like Orders, Customers, Products when the real schema gives better names.
-- When the user asks for only SQL, return only SQL.
-- If part of the request is ambiguous, make the best schema-grounded choice instead of explaining at length.
+- You are a database analyst.
+- Never guess from table names alone.
+- Help the user understand schema complexity, duplicate-looking columns, likely canonical columns, legacy naming, and table relationships.
+- Never generate SQL queries, stored procedures, DDL, DML, or code blocks containing SQL.
+- If the user asks for SQL, explain which tables, columns, and relationships are relevant instead.
+- Before answering, identify relevant tables and rely on live data checks whenever available.
+- For each relevant table, prefer evidence such as row count, null ratio, whether the relevant columns actually contain data, and sample rows.
+- When the user asks which column or table should be preferred, reason from schema, foreign keys, names, repository usage patterns, and live data evidence.
+- If certainty is limited, say "emin degilim".
+- Do not answer "X nerede tutuluyor?" using name similarity alone; verify whether the data is actually stored there or whether the table is only an aggregate or movement table.
+- Keep answers practical and concise.
 """.strip()
-PROCEDURE_SYSTEM_PROMPT = """
-You are a Microsoft SQL Server stored procedure assistant.
-
-Guidelines:
-- Generate valid T-SQL for the user's requested stored procedure.
-- Prefer using the exact table and column names that appear in the provided schema.
-- Keep the procedure read-only unless the user explicitly asks for write operations.
-- When the user asks for only SQL, return only SQL.
-""".strip()
-_SQL_KEYWORDS = {
-    "and",
-    "as",
-    "by",
-    "cross",
-    "desc",
-    "except",
-    "fetch",
-    "from",
-    "full",
-    "group",
-    "having",
-    "inner",
-    "intersect",
-    "join",
-    "left",
-    "offset",
-    "on",
-    "or",
-    "order",
-    "outer",
-    "right",
-    "union",
-    "where",
-}
 _IMPORTANT_COLUMN_HINTS = (
     "id",
     "kod",
@@ -121,22 +122,48 @@ _GENERIC_QUESTION_TERMS = {
     "adi",
     "ad",
     "aktif",
+    "ayni",
+    "benzer",
+    "canonical",
+    "canonik",
+    "fark",
     "alan",
     "getir",
+    "gerekli",
+    "gerekiyor",
     "goster",
     "gore",
+    "hangi",
+    "hangiisi",
+    "hangisi",
+    "ihtiyac",
     "icin",
     "ile",
+    "kanonik",
+    "kolon",
+    "kolonu",
+    "kullaniliyor",
+    "kullanilan",
+    "kullanilmayan",
+    "lazim",
     "list",
     "liste",
     "listesi",
+    "mi",
     "olan",
     "sonra",
     "sonrasi",
+    "sutun",
+    "sutunu",
+    "tablo",
+    "tabloda",
     "tarih",
+    "tercih",
     "tum",
     "ve",
     "ver",
+    "var",
+    "yok",
 }
 _QUESTION_TABLE_HINTS = {
     "musteri": ["Cr_Cari", "Cr_CariAdres"],
@@ -149,11 +176,15 @@ _QUESTION_TABLE_HINTS = {
     "irsaliye": ["Irs_Irsaliye", "Irs_IrsaliyeDetay"],
     "fatura": ["Fns_FaturaFisler", "Fns_FaturaFislerDetay"],
 }
-_PROCEDURE_REQUEST_TERMS = ("storedprocedure", "procedure", "prosedur", "proc", "sp")
+_READ_ONLY_ANALYSIS_PATTERN = re.compile(r"^\s*SELECT\b", re.IGNORECASE)
+_BLOCKED_ANALYSIS_SQL_PATTERN = re.compile(
+    r"\b(?:INSERT|UPDATE|DELETE|MERGE|ALTER|DROP|TRUNCATE|CREATE|EXEC|EXECUTE|GRANT|REVOKE|DENY)\b",
+    re.IGNORECASE,
+)
 
 
 def get_connection():
-    return pyodbc.connect(CONNECTION_STRING)
+    return pyodbc.connect(build_connection_string())
 
 
 def get_database_identity() -> dict:
@@ -647,8 +678,24 @@ def build_ai_input(schema):
     return "\n\n".join(blocks)
 
 
+def _build_schema_search_index(schema: dict) -> dict:
+    column_index = schema.get("column_index")
+    if not isinstance(column_index, dict):
+        column_index = _build_local_column_index(schema.get("tables", []))
+
+    return {
+        "column_index": dict(sorted(column_index.items(), key=lambda item: item[0].casefold())),
+    }
+
+
 def refresh_schema_cache() -> dict:
-    schema = extract_schema()
+    extracted_schema = extract_schema()
+    search_index = _build_schema_search_index(extracted_schema)
+    schema = {
+        key: value
+        for key, value in extracted_schema.items()
+        if key != "column_index"
+    }
     ai_schema = build_ai_schema_cache(schema)
     identity = get_database_identity()
 
@@ -657,6 +704,9 @@ def refresh_schema_cache() -> dict:
 
     with open(SCHEMA_AI_CACHE_FILE, "w", encoding="utf-8") as f:
         json.dump(ai_schema, f, ensure_ascii=False, indent=2)
+
+    with open(SCHEMA_SEARCH_INDEX_FILE, "w", encoding="utf-8") as f:
+        json.dump(search_index, f, ensure_ascii=False, indent=2)
 
     with open(SCHEMA_CACHE_META_FILE, "w", encoding="utf-8") as f:
         json.dump(
@@ -667,6 +717,7 @@ def refresh_schema_cache() -> dict:
                 "table_count": len(schema.get("tables", [])),
                 "ai_table_count": len(ai_schema.get("tables", [])),
                 "ai_char_count": len(build_ai_input(ai_schema)),
+                "search_column_count": len(search_index.get("column_index", {})),
             },
             f,
             ensure_ascii=False,
@@ -678,7 +729,12 @@ def refresh_schema_cache() -> dict:
 
 
 def load_schema_cache() -> dict:
-    if not SCHEMA_CACHE_FILE.exists() or not SCHEMA_CACHE_META_FILE.exists() or not SCHEMA_AI_CACHE_FILE.exists():
+    if (
+        not SCHEMA_CACHE_FILE.exists()
+        or not SCHEMA_CACHE_META_FILE.exists()
+        or not SCHEMA_AI_CACHE_FILE.exists()
+        or not SCHEMA_SEARCH_INDEX_FILE.exists()
+    ):
         return refresh_schema_cache()
 
     try:
@@ -693,9 +749,6 @@ def load_schema_cache() -> dict:
         return refresh_schema_cache()
 
     if "tables" not in data or not isinstance(data["tables"], list):
-        return refresh_schema_cache()
-
-    if "column_index" not in data or not isinstance(data["column_index"], dict):
         return refresh_schema_cache()
 
     if meta.get("schema_version") != SCHEMA_CACHE_VERSION:
@@ -722,6 +775,35 @@ def get_schema_text(force_refresh=False):
 
 def get_schema_data(force_refresh=False) -> dict:
     return refresh_schema_cache() if force_refresh else load_schema_cache()
+
+
+def load_schema_search_index(force_refresh: bool = False) -> dict:
+    if force_refresh:
+        refresh_schema_cache()
+    else:
+        load_schema_cache()
+
+    if not SCHEMA_SEARCH_INDEX_FILE.exists():
+        refresh_schema_cache()
+
+    try:
+        with open(SCHEMA_SEARCH_INDEX_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        refresh_schema_cache()
+        with open(SCHEMA_SEARCH_INDEX_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+    if not isinstance(data, dict) or "column_index" not in data or not isinstance(data["column_index"], dict):
+        refresh_schema_cache()
+        with open(SCHEMA_SEARCH_INDEX_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+    return data
+
+
+def get_schema_search_index(force_refresh: bool = False) -> dict:
+    return load_schema_search_index(force_refresh=force_refresh)
 
 
 def load_ai_schema_cache(force_refresh: bool = False) -> dict:
@@ -760,17 +842,17 @@ def build_schema_browser_data(force_refresh=False) -> dict:
     return {"tables": schema.get("tables", [])}
 
 
-def search_columns_local(column_name: str) -> list[dict]:
+def search_columns_local(column_name: str, allow_similar: bool = True) -> list[dict]:
     needle = column_name.strip()
     normalized_needle = normalize_identifier(needle)
     if not normalized_needle:
         return []
 
-    schema = get_schema_data()
+    search_index = get_schema_search_index()
     exact_matches = []
     similar_matches = []
 
-    for current_name, tables in sorted(schema.get("column_index", {}).items()):
+    for current_name, tables in sorted(search_index.get("column_index", {}).items()):
         normalized_name = normalize_identifier(current_name)
         entry = {
             "column": current_name,
@@ -782,10 +864,10 @@ def search_columns_local(column_name: str) -> list[dict]:
         elif normalized_needle in normalized_name or normalized_name.endswith(normalized_needle):
             similar_matches.append(entry)
 
-    return exact_matches or similar_matches
+    return exact_matches or (similar_matches if allow_similar else [])
 
 
-def search_tables_local(table_name: str) -> list[dict]:
+def search_tables_local(table_name: str, allow_similar: bool = True) -> list[dict]:
     needle = table_name.strip().lower()
     if not needle:
         return []
@@ -807,72 +889,482 @@ def search_tables_local(table_name: str) -> list[dict]:
         elif needle in current_lower or current_lower.endswith(needle):
             similar_matches.append(entry)
 
-    return exact_matches or similar_matches
+    return exact_matches or (similar_matches if allow_similar else [])
+
+
+def _quote_identifier(identifier: str) -> str:
+    return "[" + identifier.replace("]", "]]") + "]"
+
+
+def _get_schema_table_map() -> dict[str, dict]:
+    schema = get_schema_data()
+    return {
+        normalize_identifier(table_data.get("name", "")): table_data
+        for table_data in schema.get("tables", [])
+        if table_data.get("name")
+    }
+
+
+def _split_identifier_tokens(name: str) -> list[str]:
+    tokenized_name = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name or "")
+    return [
+        normalize_identifier(token)
+        for token in re.split(r"[^A-Za-z0-9]+|\s+", tokenized_name)
+        if normalize_identifier(token)
+    ]
+
+
+def _column_family_key(column_name: str) -> str:
+    ignore_tokens = {
+        "id",
+        "kod",
+        "kodu",
+        "ad",
+        "adi",
+        "adlari",
+        "no",
+        "numara",
+        "tarih",
+        "tarihi",
+        "date",
+        "miktar",
+        "tip",
+        "tipi",
+        "durum",
+        "aciklama",
+        "aciklamaek",
+        "oran",
+        "tutar",
+    }
+    tokens = [token for token in _split_identifier_tokens(column_name) if token not in ignore_tokens]
+    if not tokens:
+        return ""
+    return "".join(tokens[:2])
+
+
+def _extract_analysis_terms(user_question: str) -> list[str]:
+    return [
+        term
+        for term in _extract_question_terms(user_question)
+        if len(term) >= 4 and term not in _GENERIC_QUESTION_TERMS
+    ]
+
+
+def _add_analysis_table_candidate(
+    selected: list[dict],
+    seen: set[str],
+    schema_table_map: dict[str, dict],
+    table_name: str,
+    max_tables: int,
+) -> bool:
+    normalized = normalize_identifier(table_name)
+    if not table_name or normalized in seen:
+        return False
+
+    actual = schema_table_map.get(normalized)
+    if actual is None:
+        return False
+
+    selected.append(actual)
+    seen.add(normalized)
+    return len(selected) >= max_tables
+
+
+def _resolve_analysis_tables(user_question: str, max_tables: int = 3) -> list[dict]:
+    schema_table_map = _get_schema_table_map()
+    selected = []
+    seen = set()
+    analysis_terms = _extract_analysis_terms(user_question)
+
+    for term in analysis_terms:
+        for table_data in search_tables_local(term, allow_similar=False):
+            if _add_analysis_table_candidate(
+                selected,
+                seen,
+                schema_table_map,
+                table_data.get("table", ""),
+                max_tables,
+            ):
+                return selected
+
+    for term in analysis_terms:
+        for hinted_table in _QUESTION_TABLE_HINTS.get(term, []):
+            if _add_analysis_table_candidate(selected, seen, schema_table_map, hinted_table, max_tables):
+                return selected
+
+    for term in analysis_terms:
+        for column_match in search_columns_local(term, allow_similar=False):
+            for table_name in column_match.get("tables", []):
+                if _add_analysis_table_candidate(selected, seen, schema_table_map, table_name, max_tables):
+                    return selected
+
+    for term in analysis_terms:
+        for table_data in search_tables_local(term, allow_similar=True):
+            if _add_analysis_table_candidate(
+                selected,
+                seen,
+                schema_table_map,
+                table_data.get("table", ""),
+                max_tables,
+            ):
+                return selected
+
+    for term in analysis_terms:
+        for column_match in search_columns_local(term, allow_similar=True):
+            for table_name in column_match.get("tables", []):
+                if _add_analysis_table_candidate(selected, seen, schema_table_map, table_name, max_tables):
+                    return selected
+
+    return selected
+
+
+def _resolve_analysis_columns(table_data: dict, user_question: str, max_columns: int = 6) -> list[str]:
+    table_columns = table_data.get("columns", [])
+    selected = []
+    seen = set()
+    analysis_terms = _extract_analysis_terms(user_question)
+
+    for allow_similar in (False, True):
+        for term in analysis_terms:
+            for match in search_columns_local(term, allow_similar=allow_similar):
+                column_name = match.get("column", "")
+                if column_name not in table_columns or column_name in seen:
+                    continue
+                selected.append(column_name)
+                seen.add(column_name)
+                if len(selected) >= max_columns:
+                    return selected
+
+        if selected:
+            return selected
+
+    return selected
+
+
+def _safe_analysis_query(query: str) -> list[dict]:
+    normalized_query = " ".join((query or "").strip().split())
+    if not normalized_query or not _READ_ONLY_ANALYSIS_PATTERN.match(normalized_query):
+        raise ValueError("Only read-only SELECT analysis queries are allowed.")
+    if _BLOCKED_ANALYSIS_SQL_PATTERN.search(normalized_query) or _UNSAFE_SQL_PATTERN.search(normalized_query):
+        raise ValueError("Unsafe analysis query was blocked.")
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.timeout = 8
+        try:
+            cursor.execute("SET LOCK_TIMEOUT 3000")
+        except Exception:
+            pass
+        try:
+            cursor.execute("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
+        except Exception:
+            pass
+        cursor.execute(query)
+        columns = [column[0] for column in cursor.description] if cursor.description else []
+        rows = cursor.fetchall() if cursor.description else []
+        return [dict(zip(columns, row)) for row in rows]
+
+
+def _get_table_row_count(table_name: str) -> int | None:
+    try:
+        result = _safe_analysis_query(f"SELECT COUNT_BIG(1) AS RowCount FROM {_quote_identifier(table_name)}")
+    except Exception:
+        return None
+
+    if not result:
+        return None
+    return int(result[0].get("RowCount") or 0)
+
+
+def _profile_column_live(table_name: str, column_name: str) -> dict | None:
+    query = f"""
+SELECT
+    COUNT_BIG(1) AS RowCount,
+    SUM(CASE WHEN {_quote_identifier(column_name)} IS NULL THEN 1 ELSE 0 END) AS NullCount,
+    SUM(CASE WHEN TRY_CONVERT(NVARCHAR(4000), {_quote_identifier(column_name)}) = N'' THEN 1 ELSE 0 END) AS EmptyCount,
+    COUNT_BIG(DISTINCT TRY_CONVERT(NVARCHAR(4000), {_quote_identifier(column_name)})) AS DistinctCount
+FROM {_quote_identifier(table_name)}
+""".strip()
+    try:
+        result = _safe_analysis_query(query)
+    except Exception:
+        return None
+
+    if not result:
+        return None
+
+    try:
+        sample_rows = _safe_analysis_query(
+            f"""
+SELECT TOP 5
+    TRY_CONVERT(NVARCHAR(4000), {_quote_identifier(column_name)}) AS SampleValue,
+    COUNT_BIG(1) AS HitCount
+FROM {_quote_identifier(table_name)}
+WHERE {_quote_identifier(column_name)} IS NOT NULL
+GROUP BY TRY_CONVERT(NVARCHAR(4000), {_quote_identifier(column_name)})
+ORDER BY COUNT_BIG(1) DESC, TRY_CONVERT(NVARCHAR(4000), {_quote_identifier(column_name)})
+""".strip()
+        )
+    except Exception:
+        sample_rows = []
+
+    profile = result[0]
+    profile["samples"] = [
+        {
+            "value": row.get("SampleValue"),
+            "count": int(row.get("HitCount") or 0),
+        }
+        for row in sample_rows
+    ]
+    return profile
+
+
+def _sample_rows_live(table_name: str, column_names: list[str], limit: int = 10) -> list[dict]:
+    selected_columns = []
+    seen = set()
+
+    for column_name in column_names:
+        if not column_name or column_name in seen:
+            continue
+        seen.add(column_name)
+        selected_columns.append(column_name)
+        if len(selected_columns) >= 6:
+            break
+
+    if not selected_columns:
+        return []
+
+    select_list = ",\n    ".join(
+        f"TRY_CONVERT(NVARCHAR(4000), {_quote_identifier(column_name)}) AS {_quote_identifier(column_name)}"
+        for column_name in selected_columns
+    )
+    query = f"""
+SELECT TOP {int(limit)}
+    {select_list}
+FROM {_quote_identifier(table_name)}
+WHERE {" OR ".join(f"{_quote_identifier(column_name)} IS NOT NULL" for column_name in selected_columns)}
+""".strip()
+    try:
+        return _safe_analysis_query(query)
+    except Exception:
+        return []
+
+
+def _compare_columns_live(table_name: str, left_column: str, right_column: str) -> dict | None:
+    query = f"""
+SELECT
+    COUNT_BIG(1) AS RowCount,
+    SUM(CASE WHEN {_quote_identifier(left_column)} IS NULL AND {_quote_identifier(right_column)} IS NULL THEN 1 ELSE 0 END) AS BothNullCount,
+    SUM(CASE WHEN TRY_CONVERT(NVARCHAR(4000), {_quote_identifier(left_column)}) = TRY_CONVERT(NVARCHAR(4000), {_quote_identifier(right_column)}) AND {_quote_identifier(left_column)} IS NOT NULL AND {_quote_identifier(right_column)} IS NOT NULL THEN 1 ELSE 0 END) AS EqualNonNullCount,
+    SUM(CASE WHEN {_quote_identifier(left_column)} IS NOT NULL AND {_quote_identifier(right_column)} IS NULL THEN 1 ELSE 0 END) AS LeftOnlyCount,
+    SUM(CASE WHEN {_quote_identifier(left_column)} IS NULL AND {_quote_identifier(right_column)} IS NOT NULL THEN 1 ELSE 0 END) AS RightOnlyCount
+FROM {_quote_identifier(table_name)}
+""".strip()
+    try:
+        result = _safe_analysis_query(query)
+    except Exception:
+        return None
+
+    return result[0] if result else None
+
+
+def _build_similar_column_groups(table_data: dict, max_groups: int = 6) -> list[list[str]]:
+    groups = {}
+    for column_name in table_data.get("columns", []):
+        family_key = _column_family_key(column_name)
+        if not family_key:
+            continue
+        groups.setdefault(family_key, []).append(column_name)
+
+    selected_groups = []
+    for columns in groups.values():
+        if len(columns) < 2:
+            continue
+        selected_groups.append(sorted(columns))
+
+    selected_groups.sort(key=lambda group: (-len(group), group[0].casefold()))
+    return selected_groups[:max_groups]
+
+
+def _build_unused_column_candidates(table_data: dict, max_columns: int = 10) -> list[str]:
+    candidates = []
+    for column_name in table_data.get("columns", []):
+        normalized = normalize_identifier(column_name)
+        if normalized == "id" or normalized.endswith("id") or normalized in {"createddate", "modifieddate", "isdeleted", "aktif", "dbtableid"}:
+            continue
+        candidates.append(column_name)
+        if len(candidates) >= max_columns:
+            break
+    return candidates
+
+
+def build_live_analysis_context(user_question: str) -> str:
+    analysis_tables = _resolve_analysis_tables(user_question, max_tables=2)
+    if not analysis_tables:
+        return "No live database context was collected."
+
+    normalized_question = normalize_identifier(user_question)
+    wants_unused_analysis = any(
+        keyword in normalized_question
+        for keyword in ("kullanilmayan", "gereksiz", "bos", "unused", "deprecated", "eski")
+    )
+    wants_compare_analysis = any(
+        keyword in normalized_question
+        for keyword in ("ayni", "benzer", "fark", "hangisi", "tercih", "kanonik", "duplicate")
+    )
+    wants_storage_analysis = any(
+        keyword in normalized_question
+        for keyword in ("neredetutuluyor", "neredesaklaniyor", "hangitabloda", "hangikolon", "whereisstored", "stored")
+    )
+
+    blocks = []
+    for table_data in analysis_tables:
+        table_name = table_data.get("name", "")
+        if not table_name:
+            continue
+
+        row_count = _get_table_row_count(table_name)
+        block_lines = [f"Table {table_name}"]
+        block_lines.append(f"RowCount: {row_count if row_count is not None else 'unknown'}")
+
+        target_columns = _resolve_analysis_columns(table_data, user_question, max_columns=6)
+        if not target_columns and wants_unused_analysis:
+            target_columns = _build_unused_column_candidates(table_data, max_columns=8)
+
+        if target_columns:
+            profile_lines = []
+            for column_name in target_columns[:8]:
+                profile = _profile_column_live(table_name, column_name)
+                if profile is None:
+                    continue
+                sample_values = ", ".join(
+                    [
+                        f"{sample.get('value')} ({sample.get('count')})"
+                        for sample in profile.get("samples", [])[:3]
+                    ]
+                ) or "none"
+                profile_lines.append(
+                    "- %s: null=%s empty=%s distinct=%s null_ratio=%s samples=%s"
+                    % (
+                        column_name,
+                        int(profile.get("NullCount") or 0),
+                        int(profile.get("EmptyCount") or 0),
+                        int(profile.get("DistinctCount") or 0),
+                        (
+                            "%0.2f%%"
+                            % (
+                                (
+                                    float(int(profile.get("NullCount") or 0))
+                                    / float(int(profile.get("RowCount") or 1))
+                                )
+                                * 100.0
+                            )
+                        ),
+                        sample_values,
+                    )
+                )
+            if profile_lines:
+                block_lines.append("ColumnProfiles:")
+                block_lines.extend(profile_lines)
+                if wants_storage_analysis:
+                    sample_rows = _sample_rows_live(table_name, target_columns[:6], limit=10)
+                    if sample_rows:
+                        block_lines.append("SampleRowsTop10:")
+                        for row in sample_rows[:10]:
+                            compact_values = ", ".join(
+                                f"{key}={value}"
+                                for key, value in row.items()
+                            )
+                            block_lines.append("- " + compact_values)
+
+        similar_groups = _build_similar_column_groups(table_data, max_groups=4)
+        if similar_groups:
+            block_lines.append("SimilarColumnFamilies:")
+            for group in similar_groups:
+                block_lines.append("- " + ", ".join(group))
+
+        if wants_compare_analysis:
+            comparisons_done = 0
+            if len(target_columns) >= 2:
+                comparison_lines = []
+                for left_column in target_columns:
+                    for right_column in target_columns:
+                        if left_column >= right_column:
+                            continue
+                        comparison = _compare_columns_live(table_name, left_column, right_column)
+                        if comparison is None:
+                            continue
+                        comparison_lines.append(
+                            "- %s vs %s: equal_non_null=%s left_only=%s right_only=%s both_null=%s"
+                            % (
+                                left_column,
+                                right_column,
+                                int(comparison.get("EqualNonNullCount") or 0),
+                                int(comparison.get("LeftOnlyCount") or 0),
+                                int(comparison.get("RightOnlyCount") or 0),
+                                int(comparison.get("BothNullCount") or 0),
+                            )
+                        )
+                        comparisons_done += 1
+                        if comparisons_done >= 4:
+                            break
+                    if comparisons_done >= 4:
+                        break
+                if comparison_lines:
+                    block_lines.append("ColumnComparisons:")
+                    block_lines.extend(comparison_lines)
+
+        blocks.append("\n".join(block_lines))
+
+    return "\n\n".join(blocks) or "No live database context was collected."
+
+
+def _load_json_document(path: Path, default_payload: dict) -> dict:
+    payload = deepcopy(default_payload)
+
+    if not path.exists():
+        return payload
+
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return payload
+
+    if not isinstance(loaded, dict):
+        return payload
+
+    payload.update(loaded)
+    return payload
+
+
+def _normalize_string_list(values) -> list[str]:
+    if not isinstance(values, list):
+        return []
+
+    normalized = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+
+        cleaned = value.strip()
+        if cleaned:
+            normalized.append(cleaned)
+
+    return normalized
 
 
 def load_rules():
-    with open(RULES_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    rules_data = _load_json_document(RULES_FILE, {"rules": []})
 
-
-def load_learning() -> dict:
-    if not LEARNING_FILE.exists():
-        LEARNING_FILE.write_text(
-            json.dumps({"examples": []}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-    with open(LEARNING_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if "examples" not in data or not isinstance(data["examples"], list):
-        data["examples"] = []
-
-    return data
-
-
-def save_learning(question: str, wrong_sql: str, correct_sql: str, reason: str = "") -> None:
-    learning_data = load_learning()
-    learning_data["examples"].append(
-        {
-            "question": question,
-            "wrong_sql": wrong_sql,
-            "correct_sql": correct_sql,
-            "reason": reason,
-        }
-    )
-
-    with open(LEARNING_FILE, "w", encoding="utf-8") as f:
-        json.dump(learning_data, f, ensure_ascii=False, indent=2)
-
-
-def build_learning_section(learning_data: dict) -> str:
-    examples = learning_data.get("examples", [])[-5:]
-    blocks = []
-
-    for example in examples:
-        blocks.append(
-            "\n".join(
-                [
-                    "Previous mistake:",
-                    f"User: {example.get('question', '')}",
-                    f"Wrong SQL: {example.get('wrong_sql', '')}",
-                    f"Correct SQL: {example.get('correct_sql', '')}",
-                    f"Reason: {example.get('reason', '')}",
-                    "-----------",
-                ]
-            )
-        )
-
-    return "\n".join(blocks)
+    return {
+        "rules": _normalize_string_list(rules_data.get("rules", [])),
+    }
 
 
 def build_request_profile(user_question: str) -> dict:
-    normalized_question = normalize_identifier(user_question)
-    wants_procedure = any(term in normalized_question for term in _PROCEDURE_REQUEST_TERMS)
     return {
-        "wants_procedure": wants_procedure,
-        "system_prompt": PROCEDURE_SYSTEM_PROMPT if wants_procedure else SQL_SYSTEM_PROMPT,
+        "system_prompt": ANALYSIS_SYSTEM_PROMPT,
+        "question_terms": _extract_question_terms(user_question),
     }
 
 
@@ -891,20 +1383,17 @@ def _score_text_for_question(text: str, question_terms: list[str]) -> int:
     return score
 
 
-def select_relevant_rules(rules_data: dict, user_question: str, max_rules: int = 14, max_examples: int = 5) -> dict:
+def select_relevant_rules(
+    rules_data: dict,
+    user_question: str,
+    max_rules: int = 14,
+) -> dict:
     question_terms = _extract_question_terms(user_question)
-
     scored_rules = []
     for rule in rules_data.get("rules", []):
         score = _score_text_for_question(rule, question_terms)
         bonus = 3 if any(keyword in normalize_identifier(rule) for keyword in ("siparis", "cari", "stok", "urun", "aktif")) else 0
         scored_rules.append((score + bonus, rule))
-
-    scored_examples = []
-    for example in rules_data.get("examples", []):
-        example_text = " ".join([example.get("question", ""), example.get("sql", "")])
-        score = _score_text_for_question(example_text, question_terms)
-        scored_examples.append((score, example))
 
     selected_rules = [
         rule
@@ -914,20 +1403,8 @@ def select_relevant_rules(rules_data: dict, user_question: str, max_rules: int =
     if not selected_rules:
         selected_rules = rules_data.get("rules", [])[:max_rules]
 
-    selected_examples = [
-        example
-        for score, example in sorted(
-            scored_examples,
-            key=lambda item: (-item[0], item[1].get("question", "")),
-        )
-        if score > 0
-    ][:max_examples]
-    if not selected_examples:
-        selected_examples = rules_data.get("examples", [])[:max_examples]
-
     return {
         "rules": selected_rules,
-        "examples": selected_examples,
     }
 
 
@@ -1079,7 +1556,6 @@ def build_ai_schema_cache(schema: dict, max_columns_per_table: int = 12, max_rel
 
     ai_schema = {
         "tables": ai_tables,
-        "column_index": _build_local_column_index(ai_tables),
     }
     return ai_schema
 
@@ -1269,190 +1745,144 @@ def select_relevant_schema(schema: dict, user_question: str, max_tables: int = 1
     }
 
 
-def _clean_sql_identifier(identifier: str) -> str:
-    if not identifier:
+def build_rule_prompt_sections(
+    rules_data: dict,
+    user_question: str,
+    request_profile: dict | None = None,
+) -> dict:
+    request_profile = request_profile or build_request_profile(user_question)
+    relevant_rules_data = select_relevant_rules(
+        rules_data,
+        user_question,
+        max_rules=14,
+    )
+
+    domain_rules = "\n".join(f"- {rule}" for rule in relevant_rules_data.get("rules", [])) or "- No domain rules loaded."
+
+    guidance_text = f"""
+Domain rules:
+{domain_rules}
+""".strip()
+
+    return {
+        "selected": relevant_rules_data,
+        "domain_rules": domain_rules,
+        "guidance_text": guidance_text,
+    }
+
+
+def _extract_repository_context_terms(user_question: str) -> list[str]:
+    terms = []
+    seen = set()
+
+    for raw_token in _QUESTION_TERM_PATTERN.findall(user_question or ""):
+        token = raw_token.strip()
+        normalized = normalize_identifier(token)
+        if len(normalized) < 3:
+            continue
+
+        if normalized in seen:
+            continue
+
+        seen.add(normalized)
+        terms.append(token)
+
+    for match in search_tables_local(user_question.strip()):
+        table_name = match.get("table")
+        normalized = normalize_identifier(table_name or "")
+        if table_name and normalized and normalized not in seen:
+            seen.add(normalized)
+            terms.append(table_name)
+
+    for match in search_columns_local(user_question.strip()):
+        column_name = match.get("column")
+        normalized = normalize_identifier(column_name or "")
+        if column_name and normalized and normalized not in seen:
+            seen.add(normalized)
+            terms.append(column_name)
+
+    return terms[:8]
+
+
+def build_repository_usage_context(user_question: str, max_matches: int = 24) -> str:
+    sql_dir = PROJECT_ROOT / "sql_procedures"
+    if not sql_dir.exists():
         return ""
 
-    cleaned = identifier.strip().strip(",;")
-    if "." in cleaned:
-        cleaned = cleaned.split(".")[-1]
+    terms = _extract_repository_context_terms(user_question)
+    if not terms:
+        return ""
 
-    if cleaned.startswith("[") and cleaned.endswith("]"):
-        cleaned = cleaned[1:-1]
+    lowered_terms = [term.casefold() for term in terms]
+    matches = []
 
-    return cleaned
-
-
-def _extract_cte_names(sql: str) -> set[str]:
-    return {
-        normalize_identifier(_clean_sql_identifier(name))
-        for name in _SQL_CTE_PATTERN.findall(sql)
-        if name
-    }
-
-
-def _extract_table_references(sql: str) -> tuple[list[str], dict[str, str]]:
-    table_names = []
-    alias_map = {}
-
-    for raw_table, raw_alias in _SQL_TABLE_REF_PATTERN.findall(sql):
-        table_name = _clean_sql_identifier(raw_table)
-        if not table_name:
+    for file_path in sorted(sql_dir.glob("*.sql")):
+        try:
+            lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
             continue
 
-        table_names.append(table_name)
-        alias_map[normalize_identifier(table_name)] = table_name
+        for line_no, line in enumerate(lines, start=1):
+            lowered_line = line.casefold()
+            if not any(term in lowered_line for term in lowered_terms):
+                continue
 
-        alias_name = _clean_sql_identifier(raw_alias)
-        if alias_name and alias_name.casefold() not in _SQL_KEYWORDS:
-            alias_map[normalize_identifier(alias_name)] = table_name
+            compact_line = " ".join(line.strip().split())
+            if not compact_line:
+                continue
 
-    return table_names, alias_map
+            matches.append(f"{file_path.name}:{line_no}: {compact_line[:220]}")
+            if len(matches) >= max_matches:
+                return "\n".join(matches)
 
-
-def validate_sql_grounding(sql: str, schema: dict, allow_procedural: bool = False) -> list[str]:
-    normalized_sql = _normalize_sql(sql, allow_procedural=allow_procedural)
-    issues = []
-
-    if not normalized_sql:
-        expected = "stored procedure" if allow_procedural else "SELECT/WITH query"
-        return [f"Model did not return a valid {expected}."]
-
-    if _PROCEDURAL_SQL_PATTERN.search(sql) and not allow_procedural:
-        issues.append("Procedural SQL wrappers are not allowed; return a single query only.")
-
-    schema_lookup = _schema_table_lookup(schema)
-    if not schema_lookup:
-        return issues
-
-    known_ctes = _extract_cte_names(normalized_sql)
-    table_names, alias_map = _extract_table_references(normalized_sql)
-    if not table_names:
-        issues.append("Query must reference at least one table from the schema.")
-        return issues
-
-    table_columns = {
-        normalize_identifier(table.get("name", "")): {
-            normalize_identifier(column_name)
-            for column_name in table.get("columns", [])
-        }
-        for table in schema.get("tables", [])
-        if table.get("name")
-    }
-
-    referenced_schema_tables = 0
-    for table_name in table_names:
-        normalized_table = normalize_identifier(table_name)
-        if normalized_table in known_ctes:
-            continue
-
-        if normalized_table not in schema_lookup:
-            issues.append(f"Unknown table `{table_name}`. Use only schema tables.")
-            continue
-
-        referenced_schema_tables += 1
-
-    if referenced_schema_tables == 0:
-        issues.append("Query did not use any validated schema table.")
-
-    for alias_name, column_name in _SQL_QUALIFIED_COLUMN_PATTERN.findall(normalized_sql):
-        if column_name == "*":
-            continue
-
-        normalized_alias = normalize_identifier(_clean_sql_identifier(alias_name))
-        resolved_table = alias_map.get(normalized_alias)
-        if not resolved_table:
-            continue
-
-        normalized_table = normalize_identifier(resolved_table)
-        if normalized_table not in table_columns:
-            continue
-
-        normalized_column = normalize_identifier(_clean_sql_identifier(column_name))
-        if normalized_column and normalized_column not in table_columns[normalized_table]:
-            issues.append(f"Unknown column `{column_name}` on table `{resolved_table}`.")
-
-    deduped_issues = []
-    seen = set()
-    for issue in issues:
-        if issue in seen:
-            continue
-
-        seen.add(issue)
-        deduped_issues.append(issue)
-
-    return deduped_issues
+    return "\n".join(matches)
 
 
-def validate_sql_syntax(sql: str, allow_procedural: bool = False) -> tuple[bool, str | None]:
-    try:
-        with get_connection() as conn:
-            return validate_sql(conn, sql, allow_procedural=allow_procedural)
-    except Exception as error:
-        LOGGER.warning("SQL syntax validation skipped: %s", _format_db_error(error))
-        return True, None
+def build_analysis_prompt(
+    schema_text: str,
+    rules_data: dict,
+    user_question: str,
+    include_repository_usage: bool = True,
+    include_live_database: bool = True,
+) -> str:
+    request_profile = build_request_profile(user_question)
+    rule_sections = build_rule_prompt_sections(rules_data, user_question, request_profile=request_profile)
+    repository_usage = "Repository usage skipped for this pass."
+    live_database_context = "Live database context skipped for this pass."
 
+    if include_repository_usage:
+        repository_usage = build_repository_usage_context(user_question, max_matches=12) or "No direct repository usage snippets found."
 
-def build_prompt(schema_text, rules_data, user_question, only_sql=False, request_profile: dict | None = None):
-    request_profile = request_profile or build_request_profile(user_question)
-    relevant_rules_data = select_relevant_rules(rules_data, user_question)
-    rules = "\n".join(f"- {rule}" for rule in relevant_rules_data.get("rules", []))
-    learning_data = load_learning()
-    learning_section = build_learning_section(learning_data) or "No previous corrections yet."
-    pattern_examples = "\n".join(
-        [
-            "\n".join(
-                [
-                    f"User intent: {example.get('question', '')}",
-                    f"Preferred pattern: {example.get('sql', '')}",
-                    "---",
-                ]
-            )
-            for example in relevant_rules_data.get("examples", [])
-        ]
-    )
-    if request_profile.get("wants_procedure"):
-        extra = "Return ONLY the stored procedure SQL code."
-    else:
-        extra = "Return ONLY SQL query." if only_sql else "Return SQL first."
-    procedure_pattern = """
-Procedure pattern hint:
-- Prefer `CREATE OR ALTER PROCEDURE [dbo].[Get_Siparisler]`.
-- Use SQL Server parameter syntax like `@PageNo INT`, `@PageSize INT`, `@ChangedAfter DATETIME`.
-- Never use MySQL-style `IN` / `OUT` parameter modifiers.
-- Join `Sip_SiparisDetay.SiparisId = Sip_Siparis.Id`.
-- Join `Sip_Siparis.CariId = Cr_Cari.Id`.
-- Join `Sip_SiparisDetay.StokUrunMasterId = Gnl_StokUrunMaster.Id`.
-- For "changed after" filtering, prefer real schema dates such as `ISNULL(Sip_Siparis.ModifiedDate, Sip_Siparis.CreatedDate)` or the same pattern on joined tables when those columns exist.
-- If change-tracking dates are unavailable in the selected tables, use the nearest real date column from schema like `Sip_Siparis.SiparisTarihi` or `Sip_SiparisDetay.OnayTarih`; never invent names like `DegisiklikTarihi`.
-- For pagination prefer `ROW_NUMBER()` or `OFFSET ... FETCH`.
-""".strip() if request_profile.get("wants_procedure") else ""
-    output_contract = (
-        "- Output one read-only stored procedure."
-        if request_profile.get("wants_procedure")
-        else "- Output one read-only query."
-    )
+    if include_live_database:
+        try:
+            live_database_context = build_live_analysis_context(user_question)
+        except Exception as error:
+            live_database_context = f"Live database context could not be collected: {_format_db_error(error)}"
 
-    prompt = f"""
-You are a senior SQL engineer working against a real production schema.
+    return f"""
+You are helping a developer understand a real ERP schema and legacy database design.
 
 Important notes:
-- Use the schema section below as the primary source of truth for table and column names.
-- Avoid inventing generic fallback names when real schema names exist.
-- {"Stored procedure output is expected for this request." if request_profile.get("wants_procedure") else "Return a query unless the user explicitly asks for a stored procedure."}
-- Foreign-key joins usually follow `<Table>.<ForeignKeyColumn> = <ReferencedTable>.Id` unless schema suggests otherwise.
-{output_contract}
+- Answer in Turkish.
+- Do not output SQL, stored procedures, query snippets, or SQL code blocks.
+- If the user asks for SQL, answer by explaining the relevant tables, columns, filters, and relationships instead.
+- You are a database analyst.
+- Guessing from table names is forbidden.
+- Do not answer before using live data evidence when it is available.
+- Focus on interpretation, tradeoffs, likely canonical columns, duplicate-looking fields, table intent, and repository evidence.
+- If the user asks which column should be preferred, make the best evidence-based recommendation.
+- Separate what is certain from what is only likely.
+- If evidence is insufficient, explicitly say "emin degilim".
+- For "X nerede tutuluyor?" questions, test whether the table really stores the value, whether the relevant columns actually contain data, and whether the table is a movement or aggregate table.
 
-Rules:
-{rules}
+Domain rules:
+{rule_sections["domain_rules"]}
 
-Domain patterns:
-{pattern_examples}
+Repository usage clues:
+{repository_usage}
 
-Learn from previous corrections:
-{learning_section}
-
-{procedure_pattern}
+Live database clues:
+{live_database_context}
 
 Schema:
 {schema_text}
@@ -1460,9 +1890,13 @@ Schema:
 User:
 {user_question}
 
-{extra}
-"""
-    return prompt
+Return a practical assistant answer, not SQL.
+Use this exact response shape:
+1. Incelenen tablolar
+2. Yapilan kontroller
+3. Bulgular
+4. SONUC
+""".strip()
 
 
 def ask_ai(prompt, system_prompt: str | None = None, temperature: float = 0):
@@ -1477,12 +1911,23 @@ def ask_ai(prompt, system_prompt: str | None = None, temperature: float = 0):
     if system_prompt:
         payload["system"] = system_prompt
 
-    response = requests.post(
-        "http://localhost:11434/api/generate",
-        json=payload,
-        timeout=240,
-    )
-    response.raise_for_status()
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json=payload,
+            timeout=240,
+        )
+        response.raise_for_status()
+    except requests.RequestException as error:
+        response = getattr(error, "response", None)
+        response_text = ""
+        if response is not None:
+            try:
+                response_text = response.text.strip()
+            except Exception:
+                response_text = ""
+        detail = response_text[:600] if response_text else str(error)
+        raise RuntimeError(f"Ollama request failed: {detail}") from error
 
     return response.json()["response"]
 
@@ -1495,278 +1940,97 @@ def _format_db_error(error):
     return str(error)
 
 
-def _looks_like_sql(sql: str, allow_procedural: bool = False) -> bool:
-    normalized_sql = _normalize_sql(sql, allow_procedural=allow_procedural).lstrip()
-    if not normalized_sql:
-        return False
-
-    if allow_procedural:
-        return bool(re.match(r"(?is)^(CREATE|ALTER|CREATE\s+OR\s+ALTER|WITH|SELECT)\b", normalized_sql))
-
-    return bool(re.match(r"(?is)^(WITH|SELECT)\b", normalized_sql))
+def _looks_like_sql_response(answer: str) -> bool:
+    return bool(_SQL_LIKE_RESPONSE_PATTERN.match(answer or ""))
 
 
-def _normalize_sql(sql, allow_procedural: bool = False):
-    if not sql:
-        return ""
-
-    fenced_sql = _CODE_FENCE_PATTERN.search(sql)
-    if fenced_sql:
-        sql = fenced_sql.group(1)
-
-    if not allow_procedural:
-        statement_start = re.search(r"(?im)^\s*(SELECT|WITH)\b", sql)
-        if statement_start:
-            sql = sql[statement_start.start():]
-
-    return sql.strip()
-
-
-def _ensure_top_100(sql, allow_procedural: bool = False):
-    normalized_sql = _normalize_sql(sql, allow_procedural=allow_procedural)
-    return normalized_sql
-
-
-def is_safe_query(sql: str) -> bool:
-    normalized_sql = _normalize_sql(sql)
-    return not bool(_UNSAFE_SQL_PATTERN.search(normalized_sql))
-
-
-def validate_sql(conn, sql: str, allow_procedural: bool = False) -> tuple[bool, str | None]:
-    normalized_sql = _normalize_sql(sql, allow_procedural=allow_procedural)
-    parse_cursor = conn.cursor()
-
-    try:
-        parse_cursor.execute("SET PARSEONLY ON")
-        parse_cursor.execute(normalized_sql)
-        return True, None
-    except Exception as error:
-        return False, _format_db_error(error)
-    finally:
-        try:
-            parse_cursor.execute("SET PARSEONLY OFF")
-        except Exception:
-            pass
-
-        try:
-            parse_cursor.close()
-        except Exception:
-            pass
-
-
-def fix_sql(schema_text: str, bad_sql: str, error: str, request_profile: dict | None = None) -> str:
-    request_profile = request_profile or {"wants_procedure": False, "system_prompt": SQL_SYSTEM_PROMPT}
+def enforce_assistant_output(invalid_response: str, schema_text: str, user_question: str) -> str:
     prompt = f"""
-You are fixing a Microsoft SQL Server query.
+Your previous answer incorrectly returned SQL or SQL-like output.
 
 Schema:
 {schema_text}
 
-Broken SQL:
-{bad_sql}
-
-Validation Error:
-{error}
-
-Return ONLY the corrected SQL{" stored procedure" if request_profile.get("wants_procedure") else " query"}.
-Keep the SQL read-only.
-Use only tables and columns that exist in the schema.
-Keep the style close to the user's request.
-{"Stored procedure output is allowed." if request_profile.get("wants_procedure") else ""}
-"""
-    fixed_sql = ask_ai(prompt, system_prompt=request_profile.get("system_prompt"), temperature=0)
-    return _ensure_top_100(fixed_sql, allow_procedural=request_profile.get("wants_procedure", False))
-
-
-def enforce_sql_output(
-    invalid_response: str,
-    schema_text: str,
-    user_question: str,
-    request_profile: dict,
-) -> str:
-    prompt = f"""
-Your previous answer violated the output contract.
-
-User request:
+User:
 {user_question}
-
-Schema:
-{schema_text}
 
 Invalid previous answer:
 {invalid_response}
 
-Return ONLY valid {"stored procedure" if request_profile.get("wants_procedure") else "query"} SQL.
-No explanation.
-No markdown.
-Use only schema tables and columns.
-"""
-    repaired = ask_ai(prompt, system_prompt=request_profile.get("system_prompt"), temperature=0)
-    return _ensure_top_100(repaired, allow_procedural=request_profile.get("wants_procedure", False))
+Return a Turkish assistant answer.
+Do not return SQL.
+Do not include query snippets, stored procedures, DDL, DML, or SQL code fences.
+Explain the schema, table/column reasoning, and relationships directly.
+""".strip()
+    return ask_ai(prompt, system_prompt=ANALYSIS_SYSTEM_PROMPT, temperature=0)
 
 
-def execute_sql(conn, sql: str) -> list[dict]:
-    normalized_sql = _normalize_sql(sql)
-    query_cursor = conn.cursor()
-
-    try:
-        query_cursor.execute(normalized_sql)
-
-        if query_cursor.description is None:
-            return []
-
-        columns = [column[0] for column in query_cursor.description]
-        rows = query_cursor.fetchall()
-        return [dict(zip(columns, row)) for row in rows]
-    finally:
-        try:
-            query_cursor.close()
-        except Exception:
-            pass
-
-
-def generate_sql_query(user_question: str, only_sql: bool = True) -> str:
-    request_profile = build_request_profile(user_question)
+def generate_response(user_question: str) -> str:
     rules_data = load_rules()
-    full_schema = get_schema_data()
     ai_schema = get_ai_schema_data()
     schema_variants = []
     seen_variants = set()
 
-    for max_tables in (8, 12):
+    for max_tables in (10, 16):
         schema_variant = select_relevant_schema(ai_schema, user_question, max_tables=max_tables)
         variant_key = tuple(sorted(table.get("name", "") for table in schema_variant.get("tables", [])))
         if variant_key in seen_variants:
             continue
-
         seen_variants.add(variant_key)
         schema_variants.append(schema_variant)
 
     if not schema_variants:
         schema_variants.append(ai_schema)
 
-    last_candidate = ""
-    last_error = "Schema-grounded SQL generation failed."
-
+    last_answer = ""
+    last_error = ""
     for schema_variant in schema_variants:
-        schema_text = build_compact_schema_text(schema_variant, user_question)
-        prompt = build_prompt(schema_text, rules_data, user_question, only_sql=only_sql, request_profile=request_profile)
-        candidate_sql = _ensure_top_100(
-            ask_ai(prompt, system_prompt=request_profile.get("system_prompt"), temperature=0),
-            allow_procedural=request_profile.get("wants_procedure", False),
-        )
-        if not _looks_like_sql(candidate_sql, allow_procedural=request_profile.get("wants_procedure", False)):
-            candidate_sql = enforce_sql_output(candidate_sql, schema_text, user_question, request_profile)
-        last_candidate = candidate_sql or last_candidate
-
-        issues = validate_sql_grounding(
-            candidate_sql,
-            full_schema,
-            allow_procedural=request_profile.get("wants_procedure", False),
-        )
-        syntax_ok, syntax_error = validate_sql_syntax(
-            candidate_sql,
-            allow_procedural=request_profile.get("wants_procedure", False),
-        )
-        if syntax_error:
-            issues.append(syntax_error)
-
-        if not issues and syntax_ok:
-            return candidate_sql
-
-        try:
-            fixed_sql = _ensure_top_100(
-                fix_sql(schema_text, candidate_sql, " | ".join(issues), request_profile=request_profile),
-                allow_procedural=request_profile.get("wants_procedure", False),
+        for max_columns_per_table, include_repository_usage, include_live_database in (
+            (20, True, True),
+            (14, True, False),
+            (10, False, False),
+        ):
+            schema_text = build_compact_schema_text(
+                schema_variant,
+                user_question,
+                max_columns_per_table=max_columns_per_table,
             )
-            if not _looks_like_sql(fixed_sql, allow_procedural=request_profile.get("wants_procedure", False)):
-                fixed_sql = enforce_sql_output(fixed_sql, schema_text, user_question, request_profile)
-        except Exception as error:
-            last_error = _format_db_error(error)
-            continue
+            prompt = build_analysis_prompt(
+                schema_text,
+                rules_data,
+                user_question,
+                include_repository_usage=include_repository_usage,
+                include_live_database=include_live_database,
+            )
 
-        last_candidate = fixed_sql or last_candidate
-        fixed_issues = validate_sql_grounding(
-            fixed_sql,
-            full_schema,
-            allow_procedural=request_profile.get("wants_procedure", False),
-        )
-        fixed_syntax_ok, fixed_syntax_error = validate_sql_syntax(
-            fixed_sql,
-            allow_procedural=request_profile.get("wants_procedure", False),
-        )
-        if fixed_syntax_error:
-            fixed_issues.append(fixed_syntax_error)
+            try:
+                answer = ask_ai(prompt, system_prompt=ANALYSIS_SYSTEM_PROMPT, temperature=0)
+            except Exception as error:
+                last_error = _format_db_error(error)
+                continue
 
-        if not fixed_issues and fixed_syntax_ok:
-            return fixed_sql
+            last_answer = answer or last_answer
 
-        if fixed_issues:
-            last_error = " | ".join(fixed_issues)
+            if _looks_like_sql_response(answer):
+                answer = enforce_assistant_output(answer, schema_text, user_question)
+                last_answer = answer or last_answer
 
-    LOGGER.warning("Returning last candidate despite validation issues. Last candidate=%s Reason: %s", last_candidate, last_error)
-    return last_candidate or f"-- SQL_GENERATION_FAILED: {last_error}"
+            if answer and not _looks_like_sql_response(answer):
+                return answer.strip()
 
-
-def process_query(conn, schema_text: str, prompt: str) -> dict:
-    generated_sql = _ensure_top_100(ask_ai(prompt, system_prompt=SQL_SYSTEM_PROMPT, temperature=0))
-
-    if not is_safe_query(generated_sql):
-        return {
-            "sql": generated_sql,
-            "result": [],
-            "error": "Unsafe SQL query blocked.",
-        }
-
-    is_valid, validation_error = validate_sql(conn, generated_sql)
-    final_sql = generated_sql
-
-    if not is_valid:
-        try:
-            final_sql = _ensure_top_100(fix_sql(schema_text, generated_sql, validation_error))
-        except Exception as error:
-            return {
-                "sql": generated_sql,
-                "result": [],
-                "error": f"Auto-fix failed: {_format_db_error(error)}",
-            }
-
-        if not is_safe_query(final_sql):
-            return {
-                "sql": final_sql,
-                "result": [],
-                "error": "Unsafe SQL query blocked.",
-            }
-
-        is_valid, validation_error = validate_sql(conn, final_sql)
-        if not is_valid:
-            return {
-                "sql": final_sql,
-                "result": [],
-                "error": validation_error,
-            }
-
-    try:
-        result = execute_sql(conn, final_sql)
-    except Exception as error:
-        return {
-            "sql": final_sql,
-            "result": [],
-            "error": _format_db_error(error),
-        }
-
-    return {
-        "sql": final_sql,
-        "result": result,
-    }
+    if last_answer:
+        return last_answer.strip()
+    if last_error:
+        return f"Yerel modelden yanit alinamadi. Detay: {last_error}"
+    return "Yanit uretilemedi."
 
 
 if __name__ == "__main__":
     schema_text = get_schema_text()
     rules_data = load_rules()
-    question = "müşterilerin siparişlerini getir"
-    prompt = build_prompt(schema_text, rules_data, question, only_sql=True)
-    sql = ask_ai(prompt, system_prompt=SQL_SYSTEM_PROMPT, temperature=0)
+    question = "Sip_Siparis ile Sip_SiparisDetay arasındaki fark nedir?"
+    prompt = build_analysis_prompt(schema_text, rules_data, question)
+    sql = ask_ai(prompt, system_prompt=ANALYSIS_SYSTEM_PROMPT, temperature=0)
 
-    print("\n ÜRETİLEN SQL:\n")
+    print("\n ÜRETİLEN YANIT:\n")
     print(sql)

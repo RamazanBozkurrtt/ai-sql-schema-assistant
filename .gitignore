@@ -1,0 +1,26 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local database/schema exports
+schema_cache*.json
+schema_search_index.json
+schema_cache.optimized.json
+learning.json
+sql_procedures/
+
+# Local prompt/domain assets. Commit only the *.example.json templates.
+rules.json
+
+# Tooling and editor noise
+.venv/
+venv/
+.idea/
+.vscode/
+*.log

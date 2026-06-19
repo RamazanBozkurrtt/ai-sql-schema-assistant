@@ -3,6 +3,7 @@ from flask import Flask, jsonify, render_template, request
 import main
 
 app = Flask(__name__)
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 
 @app.get("/schema")
@@ -30,33 +31,34 @@ def search_table():
 @app.route("/", methods=["GET", "POST"])
 def index():
     result = ""
-    learning_saved = False
     schema_refreshed = False
 
     if request.method == "POST":
         action = request.form.get("action", "generate")
         question = request.form.get("question", "").strip()
-        only_sql = "only_sql" in request.form
-        correct_sql = request.form.get("correct_sql", "").strip()
-        reason = request.form.get("reason", "").strip()
-        wrong_sql = request.form.get("wrong_sql", "").strip()
-
         if action == "refresh_schema":
             main.get_schema_text(force_refresh=True)
             schema_refreshed = True
-        elif correct_sql and wrong_sql and question:
-            main.save_learning(question, wrong_sql, correct_sql, reason)
-            result = wrong_sql
-            learning_saved = True
         elif question:
-            result = main.generate_sql_query(question, only_sql=only_sql)
+            try:
+                result = main.generate_response(question)
+            except Exception as error:
+                result = f"Bir hata olustu: {error}"
 
     return render_template(
         "index.html",
         result=result,
-        learning_saved=learning_saved,
         schema_refreshed=schema_refreshed,
     )
+
+
+@app.after_request
+def add_no_cache_headers(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    response.headers.pop("ETag", None)
+    return response
 
 
 if __name__ == "__main__":
